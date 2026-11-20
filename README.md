@@ -1,6 +1,6 @@
 # 🎬 Demo Vid Studio (`demo-vid-studio`)
 
-An AI-directed, code-driven **1080p narrated demo video production skill** for **[Antigravity](https://idx.dev)**, **[Claude Code](https://claude.com/claude-code)**, and **Gemini CLI**.
+An AI-directed, code-driven **1080p narrated demo video production skill** for **[Antigravity](https://antigravity.google)**, **[Claude Code](https://claude.com/claude-code)**, and **Gemini CLI**.
 
 Inspired by the narrated prototype walkthrough pipeline from [`sentiment_translator`](https://github.com/bakeyeon/sentiment_translator/blob/main/docs/demo-video.md), `demo-vid-studio` turns any web or mobile prototype into a polished 1080p walkthrough video — complete with neural narration, 2× Retina screen capture, live UI zooms, glassmorphic/stylized feature cards, synthesized sound effects, and auto-ducked background music — without opening a video editor.
 
@@ -26,6 +26,11 @@ Inspired by the narrated prototype walkthrough pipeline from [`sentiment_transla
 5. **Pluggable AI Image & Video Asset Generation (`generate-asset`)**
    - Works 100% free & offline with pure HTML/CSS/SVG rendering by default.
    - Optionally integrates with installed agent plugins (`image-generator`, `gemini-api-cli`, `gemini-omni-flash-api`, Canva/InVideo) or API keys in `~/.env` / `.env` (**Google Gemini / Imagen 3**, **Higgsfield AI**, **Adobe Firefly**, **Fal.ai / Flux**, **OpenAI**) to generate custom 3D clay dioramas, storybook illustrations, or studio backgrounds.
+   - Higgsfield, Adobe Firefly and Fal are **experimental**: their endpoints and auth may need adjusting for your account.
+6. **Social Formats (`--vertical`, `--square-gif`)**
+   - The agent asks whether you also want a **1080×1920 vertical MP4** (Reels, Shorts, TikTok) and/or a **square GIF** for feeds.
+   - Both are re-framed from the 1080p master: the device and the feature card are stacked (or set side by side when that reads better), the caption sits underneath, and a blurred copy of the video fills the background. No re-recording needed.
+   - Already have a video? `studio_cli.py reframe --target demo --formats vertical,square-gif --output demo/reframe.json`
 
 ---
 
@@ -82,9 +87,9 @@ This installs `demo-vid-studio` globally into:
 ### Prerequisites
 - **Node.js** + **Playwright** (`npm i -D playwright && npx playwright install chromium`)
 - **FFmpeg** (`ffmpeg` on PATH)
-- **Python 3** (`uv` recommended) + `edge-tts`, `numpy`, `scipy`:
+- **Python 3.9+** with `edge-tts`, `numpy`, `scipy`. With [`uv`](https://docs.astral.sh/uv/), `uv run studio_cli.py ...` installs them automatically from the script's inline metadata. Without uv:
   ```bash
-  uv pip install edge-tts numpy scipy
+  pip install edge-tts numpy scipy
   ```
 
 ---
@@ -99,8 +104,9 @@ Open any project in **Antigravity** or **Claude Code** and say:
 The agent will:
 1. Scan your project and suggest key features to highlight.
 2. Ask if you have a script or want it to draft one, and let you pick a `--style` (`ambient`, `minimal`, `cartoon`, `storybook`, `clay3d`, `cyberpunk`) and `--layout` (`mobile`, `desktop`).
-3. Present `demo/storyboard.md` for your confirmation.
-4. Run the 5-stage pipeline and output `demo/demo-video.mp4`!
+3. Ask which extra formats you want: README `preview.gif`, silent MP4, vertical 9:16 MP4, square GIF.
+4. Present `demo/storyboard.md` for your confirmation.
+5. Run the 5-stage pipeline and output `demo/demo-video.mp4` (plus `demo-video-vertical.mp4` / `demo-video-square.gif` if requested).
 
 ---
 
@@ -113,6 +119,6 @@ See [`examples/alphaevolve_demo/`](./examples/alphaevolve_demo/) for a complete 
 - [`examples/alphaevolve_demo/README.md`](./examples/alphaevolve_demo/README.md) — Showcase overview with silent preview GIF, silent 1080p MP4, and full narrated 1080p MP4
 - [`examples/alphaevolve_demo/storyboard.md`](./examples/alphaevolve_demo/storyboard.md) — The AI-directed scene-by-scene storyboard approved before shooting
 - [`examples/alphaevolve_demo/script.json`](./examples/alphaevolve_demo/script.json) — Narration lines (`say`), captions (`cap`), `cyberpunk` style, and `desktop` layout config
-- [`examples/alphaevolve_demo/cockpit.html`](./examples/alphaevolve_demo/cockpit.html) — Self-contained `1280×800` Live Evolution Cockpit web UI
+- [`examples/alphaevolve_demo/cockpit.html`](./examples/alphaevolve_demo/cockpit.html) — Self-contained `1280×800` Live Evolution Cockpit web UI (an illustrative mock: the scores in it are scripted, not from a real run)
 - [`examples/alphaevolve_demo/record.mjs`](./examples/alphaevolve_demo/record.mjs) — 2× CDP Playwright screencast recorder with neon click ripples and `events.json` logging
 - [`examples/alphaevolve_demo/assets.mjs`](./examples/alphaevolve_demo/assets.mjs) — 6 Cyberpunk HUD cards (including live 2× cropped MAP-Elites region zoom) and timeline builder

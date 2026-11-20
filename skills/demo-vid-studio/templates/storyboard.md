@@ -33,3 +33,4 @@
 - [ ] Do you want to tweak any narration lines or captions?
 - [ ] Are the chosen `--style` (`{{STYLE}}`) and `--layout` (`{{LAYOUT}}`) good to go?
 - [ ] Also generate a **silent `preview.gif` & silent MP4 (`--preview-gif --silent-mp4`)** for embedding in your GitHub `README.md`?
+- [ ] Also export **social formats**: a **1080×1920 vertical MP4** for Reels/Shorts/TikTok (`--vertical`) and/or a **square GIF** for feeds (`--square-gif`)?

@@ -7,3 +7,5 @@ examples/*/voice/*.wav
 examples/*/*_result.json
 examples/*/init.json
 .DS_Store
+__pycache__/
+*.pyc

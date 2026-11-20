@@ -32,7 +32,7 @@ It combines:
 ## Dependencies
 
 Reuse these installed skills whenever available in the agent environment:
-- **`credentials`**: **MANDATORY** whenever checking or prompting for AI media generation API keys (`GEMINI_API_KEY`, `HIGGSFIELD_API_KEY`, `FIREFLY_API_KEY`, `ADOBE_CLIENT_ID`, `FAL_KEY`, `OPENAI_API_KEY`). Verify key presence quietly (`grep -sq "^KEY_NAME=" ~/.env`) and never print or ask the user to paste keys in chat.
+- **`credentials`** (if installed): use it whenever checking or prompting for AI media generation API keys. If it is not installed, follow the same rules yourself: check presence quietly (`grep -sq "^KEY_NAME=" ~/.env`), never print a key, and never ask the user to paste one into chat; ask them to add it to `~/.env` themselves.
 - **`gemini-api-cli` / `gemini-api-dev` / `gemini-omni-flash-api`** (optional): When installed, use them for native Gemini TTS, Imagen background/card generation, or Gemini Omni video intro/outro generation.
 - **Built-in `image-generator` / `browser` subagents** (optional, Antigravity): Use `image-generator` for zero-key visual asset creation and `browser` (or `read_file` on rendered PNGs) for visual QA of rendered cards and frames.
 
@@ -95,6 +95,7 @@ uv run skills/demo-vid-studio/scripts/studio_cli.py compose --target demo --styl
      - Narration language & voice (e.g., `en-US-AvaNeural`, `en-GB-SoniaNeural`, `ko-KR-SunHiNeural`, `ja-JP-NanamiNeural`).
    - **AI Asset Generation (Optional)**: Ask if they want pure HTML/CSS/SVG rendering (instant, free) or AI-generated background/illustrations via an installed plugin or API key (`Gemini`, `Higgsfield`, `Adobe Firefly`, `Fal`, `OpenAI`).
    - **Silent GIF / Silent MP4 Preview (Optional)**: Ask: *"Would you also like me to generate a silent auto-playing GIF (`preview.gif`) and silent MP4 (`*-silent.mp4`) so you can embed the demo directly in your GitHub `README.md`?"*
+   - **Social Formats (Optional, always ask)**: Ask: *"Do you also want versions for social media at the same time? (a) a vertical 1080×1920 MP4 with narration for Reels / Shorts / TikTok, (b) a square GIF for feeds, (c) both, or (d) just the 16:9 video."* Map the answer to `--vertical` and/or `--square-gif` on `compose`, and record it in the storyboard summary. Mention that these are re-framed from the same take (device and card stacked, caption underneath), so they cost no extra recording. For the `desktop` layout the square GIF drops the side card so the screen stays readable.
 
 ### Phase 2: Markdown Storyboard Review (`demo/storyboard.md`)
 
@@ -143,9 +144,9 @@ Run the 5 stages sequentially:
    *Tip*: Inspect 1–2 rendered PNGs (`demo/build/bg.png`, `demo/build/card_0.png`) using `read_file` to verify there is no text overflow or layout clipping.
 5. **Stage 5 — Audio Synthesis & Final Composition (`compose`)**:
    ```bash
-   uv run <path-to-skill>/scripts/studio_cli.py compose --target demo --style <style> --preview-gif --silent-mp4 --output demo/compose_result.json
+   uv run <path-to-skill>/scripts/studio_cli.py compose --target demo --style <style> --preview-gif --silent-mp4 --vertical --square-gif --output demo/compose_result.json
    ```
-   *(Pass `--preview-gif` and/or `--silent-mp4` when the user opted in during Phase 1 or Phase 2 to generate a GitHub README-ready `preview.gif` and `*-silent.mp4` alongside the narrated MP4.)*
+   *(Pass `--preview-gif` and/or `--silent-mp4` when the user opted in to a GitHub README-ready `preview.gif` and `*-silent.mp4`; pass `--vertical` and/or `--square-gif` for the social formats they chose. Check one frame of each extra format, e.g. `ffmpeg -ss 10 -i demo/demo-video-vertical.mp4 -frames:v 1 demo/build/check_vertical.png`, before reporting.)*
 
 ---
 
@@ -175,7 +176,7 @@ Always run `studio_cli.py` via `uv run`. Every subcommand writes structured JSON
    ```bash
    uv run scripts/studio_cli.py music --target demo --style clay3d --duration 65 --output demo/music_result.json
    ```
-6. **`generate-asset`**: Generates an AI image or motion asset via `--provider` (`gemini`, `higgsfield`, `firefly`, `fal`, `openai`) using keys loaded automatically from `~/.env` or `.env`.
+6. **`generate-asset`**: Generates an AI image or motion asset via `--provider` (`gemini`, `higgsfield`, `firefly`, `fal`, `openai`) using keys loaded automatically from `~/.env` or `.env`. `higgsfield`, `firefly` and `fal` are experimental: tell the user so before relying on them. Firefly needs an OAuth access token in `FIREFLY_API_KEY` plus `ADOBE_CLIENT_ID`.
    ```bash
    uv run scripts/studio_cli.py generate-asset \
      --provider gemini \
@@ -184,7 +185,11 @@ Always run `studio_cli.py` via `uv run`. Every subcommand writes structured JSON
      --asset-out demo/build/bg_ai.png \
      --output demo/asset_result.json
    ```
-7. **`compose`**: Generates the `ffmpeg` filter graph (`build/filter.txt`) with card slide-up animations, live cropped UI zooms, style-matched synthesized SFX (`click`, `whoosh`, `ding`), ducked background music (`build/mix.wav`), and renders the final 1080p MP4 (`demo/demo-video.mp4`).
+7. **`reframe`**: Re-frames an existing landscape demo into social formats without re-recording (needs `build/timeline.json` from `assets.mjs`).
+   ```bash
+   uv run scripts/studio_cli.py reframe --target demo --formats vertical,square-gif --output demo/reframe_result.json
+   ```
+8. **`compose`**: Generates the `ffmpeg` filter graph (`build/filter.txt`) with card slide-up animations, live cropped UI zooms, style-matched synthesized SFX (`click`, `whoosh`, `ding`), ducked background music (`build/mix.wav`), and renders the final 1080p MP4 (`demo/demo-video.mp4`).
    ```bash
    uv run scripts/studio_cli.py compose --target demo --style ambient --video-out demo/demo-video.mp4 --output demo/compose_result.json
    ```

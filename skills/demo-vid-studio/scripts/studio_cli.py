@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = ["edge-tts", "numpy", "scipy"]
+# ///
 """
 Demo Vid Studio CLI (studio_cli.py)
 Unified production pipeline for narrated 1080p demo videos across Antigravity and Claude Code.
@@ -67,6 +71,11 @@ def enforce_rate_limit(min_interval_sec: float = 1.0):
         pass
 
 
+def redact_url(url: str) -> str:
+    """Removes credential-like query parameters so URLs are safe to print."""
+    return re.sub(r"([?&](?:key|api_key|apikey|token|access_token)=)[^&]+", r"\1REDACTED", url, flags=re.I)
+
+
 def api_request_json(url: str, payload: dict, headers: dict, rate_limit_rps: float = 1.0, max_retries: int = 4) -> dict:
     """Performs an HTTP POST JSON request with rate limiting, exponential backoff on 5xx, and full body error reporting."""
     min_interval = 1.0 / max(0.1, rate_limit_rps)
@@ -88,22 +97,22 @@ def api_request_json(url: str, payload: dict, headers: dict, rate_limit_rps: flo
                 pass
             if e.code == 429:
                 raise RateLimitError(
-                    f"HTTP 429 RateLimitError at {url} (rate_limit={rate_limit_rps} req/s). Response: {err_body[:400]}"
+                    f"HTTP 429 RateLimitError at {redact_url(url)} (rate_limit={rate_limit_rps} req/s). Response: {err_body[:400]}"
                 )
             if 500 <= e.code < 600 and attempt < max_retries:
                 backoff = 2 ** attempt
-                print(f"[retry] HTTP {e.code} from {url}, retrying in {backoff}s (attempt {attempt}/{max_retries})...", file=sys.stderr)
+                print(f"[retry] HTTP {e.code} from {redact_url(url)}, retrying in {backoff}s (attempt {attempt}/{max_retries})...", file=sys.stderr)
                 time.sleep(backoff)
                 continue
-            raise RuntimeError(f"HTTP {e.code} error calling {url} (rate_limit={rate_limit_rps} req/s): {err_body[:600]}")
+            raise RuntimeError(f"HTTP {e.code} error calling {redact_url(url)} (rate_limit={rate_limit_rps} req/s): {err_body[:600]}")
         except urllib.error.URLError as e:
             if attempt < max_retries:
                 backoff = 2 ** attempt
-                print(f"[retry] Network error ({e.reason}) calling {url}, retrying in {backoff}s...", file=sys.stderr)
+                print(f"[retry] Network error ({e.reason}) calling {redact_url(url)}, retrying in {backoff}s...", file=sys.stderr)
                 time.sleep(backoff)
                 continue
-            raise RuntimeError(f"Network error calling {url}: {e.reason}")
-    raise RuntimeError(f"Exhausted retries calling {url}")
+            raise RuntimeError(f"Network error calling {redact_url(url)}: {e.reason}")
+    raise RuntimeError(f"Exhausted retries calling {redact_url(url)}")
 
 
 def write_json_output(output_path: str, data: dict):
@@ -147,7 +156,7 @@ def cmd_check(args):
     checks["configured_api_providers"] = {
         "gemini": bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
         "higgsfield": bool(os.environ.get("HIGGSFIELD_API_KEY")),
-        "firefly": bool(os.environ.get("FIREFLY_API_KEY") or (os.environ.get("ADOBE_CLIENT_ID") and os.environ.get("ADOBE_CLIENT_SECRET"))),
+        "firefly": bool(os.environ.get("FIREFLY_API_KEY") and os.environ.get("ADOBE_CLIENT_ID")),
         "fal": bool(os.environ.get("FAL_KEY")),
         "openai": bool(os.environ.get("OPENAI_API_KEY")),
     }
@@ -466,15 +475,15 @@ def cmd_generate_asset(args):
     if provider == "gemini":
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
-            print("Error: GEMINI_API_KEY is missing in ~/.env or .env. Follow the 'credentials' skill protocol to add it.", file=sys.stderr)
+            print("Error: GEMINI_API_KEY is missing in ~/.env or .env. Add it there without pasting it into chat.", file=sys.stderr)
             sys.exit(1)
         model = args.model or "imagen-3.0-generate-002"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"
         payload = {
             "instances": [{"prompt": full_prompt}],
             "parameters": {"sampleCount": 1, "aspectRatio": "16:9"},
         }
-        resp = api_request_json(url, payload, headers={}, rate_limit_rps=1.0)
+        resp = api_request_json(url, payload, headers={"x-goog-api-key": api_key}, rate_limit_rps=1.0)
         preds = resp.get("predictions", [])
         if not preds or "bytesBase64Encoded" not in preds[0]:
             raise RuntimeError(f"Unexpected Gemini Imagen response structure: {json.dumps(resp)[:400]}")
@@ -482,9 +491,9 @@ def cmd_generate_asset(args):
 
     elif provider == "firefly":
         api_key = os.environ.get("FIREFLY_API_KEY")
-        client_id = os.environ.get("ADOBE_CLIENT_ID") or "firefly-studio"
-        if not api_key:
-            print("Error: FIREFLY_API_KEY is missing in ~/.env or .env. Follow the 'credentials' skill protocol to add it.", file=sys.stderr)
+        client_id = os.environ.get("ADOBE_CLIENT_ID")
+        if not api_key or not client_id:
+            print("Error: Firefly needs FIREFLY_API_KEY (an OAuth access token) and ADOBE_CLIENT_ID in ~/.env or .env. Experimental provider.", file=sys.stderr)
             sys.exit(1)
         url = "https://firefly-api.adobe.io/v3/images/generate"
         payload = {"prompt": full_prompt, "size": {"width": 1920, "height": 1080}}
@@ -498,7 +507,7 @@ def cmd_generate_asset(args):
     elif provider == "higgsfield":
         api_key = os.environ.get("HIGGSFIELD_API_KEY")
         if not api_key:
-            print("Error: HIGGSFIELD_API_KEY is missing in ~/.env or .env. Follow the 'credentials' skill protocol to add it.", file=sys.stderr)
+            print("Error: HIGGSFIELD_API_KEY is missing in ~/.env or .env. Add it there without pasting it into chat.", file=sys.stderr)
             sys.exit(1)
         url = os.environ.get("HIGGSFIELD_API_URL", "https://api.higgsfield.ai/v1/generations")
         payload = {"prompt": full_prompt, "aspect_ratio": "16:9"}
@@ -512,7 +521,7 @@ def cmd_generate_asset(args):
     elif provider == "fal":
         api_key = os.environ.get("FAL_KEY")
         if not api_key:
-            print("Error: FAL_KEY is missing in ~/.env or .env. Follow the 'credentials' skill protocol to add it.", file=sys.stderr)
+            print("Error: FAL_KEY is missing in ~/.env or .env. Add it there without pasting it into chat.", file=sys.stderr)
             sys.exit(1)
         model = args.model or "fal-ai/flux/schnell"
         url = f"https://fal.run/{model}"
@@ -527,7 +536,7 @@ def cmd_generate_asset(args):
     elif provider == "openai":
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            print("Error: OPENAI_API_KEY is missing in ~/.env or .env. Follow the 'credentials' skill protocol to add it.", file=sys.stderr)
+            print("Error: OPENAI_API_KEY is missing in ~/.env or .env. Add it there without pasting it into chat.", file=sys.stderr)
             sys.exit(1)
         url = "https://api.openai.com/v1/images/generations"
         payload = {"model": args.model or "gpt-image-1", "prompt": full_prompt, "size": "1536x1024"}
@@ -551,6 +560,155 @@ def cmd_generate_asset(args):
         "prompt": full_prompt,
         "asset_out": str(asset_out),
     })
+
+
+# ============================================================================
+# Social formats: re-frame the 1920x1080 master into vertical / square
+# ============================================================================
+def _even(v):
+    return max(2, int(v) // 2 * 2)
+
+
+def _clamp_box(x, y, w, h, W=1920, H=1080):
+    x, y = max(0, int(x)), max(0, int(y))
+    w, h = min(int(w), W - x), min(int(h), H - y)
+    return {"x": x // 2 * 2, "y": y // 2 * 2, "w": _even(w), "h": _even(h)}
+
+
+def stage_boxes(L: dict) -> dict:
+    """The three regions of the landscape stage worth keeping: device (with frame), card, caption."""
+    S, BZ, C, CAP = L["screen"], L["bezel"], L["card"], L["caption"]
+    fo = L.get("frameOffset", {"x": S["x"] - BZ, "y": S["y"] - BZ})
+    device = _clamp_box(fo["x"], fo["y"], S["w"] + 2 * BZ, S["y"] + S["h"] + BZ - fo["y"])
+    card = _clamp_box(C["x"] - 6, C["y"] - 6, C["w"] + 12, C["h"] + 12)  # 6px for the card glow
+    cap_h = CAP.get("h") or min(130, 1080 - CAP["y"] - 6)
+    caption = _clamp_box(CAP["x"], CAP["y"], CAP["w"], cap_h)
+    return {"device": device, "card": card, "caption": caption}
+
+
+def plan_reframe(boxes: dict, W: int, H: int, margin: int = 48, gap: int = 32) -> list:
+    """Places device + card stacked or side by side, caption underneath.
+    If both would end up too small to read (wide desktop stage in a square), drops the card
+    and gives the device the room; the caption still carries the message."""
+    place, s = _plan(boxes, W, H, margin, gap, with_card=True)
+    if s < 0.6:
+        alt, s2 = _plan(boxes, W, H, margin, gap, with_card=False)
+        if s2 > s * 1.3:
+            return alt
+    return place
+
+
+def _plan(boxes, W, H, margin, gap, with_card):
+    d, p = boxes["device"], boxes["caption"]
+    c = boxes["card"] if with_card else {"x": 0, "y": 0, "w": 2, "h": 0}
+    sp = min(1.0, (W - 2 * margin) / p["w"])
+    ph = p["h"] * sp
+    area_h = H - 2 * margin - ph - gap
+    stacked = min(1.0, (W - 2 * margin) / max(d["w"], c["w"]), (area_h - gap) / (d["h"] + c["h"]))
+    side = min(1.0, (W - 2 * margin - gap) / (d["w"] + c["w"]), area_h / max(d["h"], c["h"]))
+    if not with_card:
+        stacked = side = min(1.0, (W - 2 * margin) / d["w"], area_h / d["h"])
+    s = max(stacked, side)
+    dw, dh, cw, ch = _even(d["w"] * s), _even(d["h"] * s), _even(c["w"] * s), _even(c["h"] * s)
+    pw, phe = _even(p["w"] * sp), _even(ph)
+    if stacked >= side:
+        block_h = dh + gap + ch
+        top = margin + max(0, (area_h - block_h) // 2)
+        place = [(d, dw, dh, (W - dw) // 2, top), (c, cw, ch, (W - cw) // 2, top + dh + gap)]
+        bottom = top + block_h
+    else:
+        block_w, block_h = dw + gap + cw, max(dh, ch)
+        left = (W - block_w) // 2
+        top = margin + max(0, (area_h - block_h) // 2)
+        place = [(d, dw, dh, left, top + (block_h - dh) // 2), (c, cw, ch, left + dw + gap, top + (block_h - ch) // 2)]
+        bottom = top + block_h
+    if not with_card:
+        place = place[:1]
+        bottom = place[0][4] + dh
+    place.append((p, pw, phe, (W - pw) // 2, min(H - margin - phe, bottom + gap)))
+    return place, s
+
+
+def render_reframe(master: pathlib.Path, L: dict, W: int, H: int, out: pathlib.Path, audio: bool = True):
+    place = plan_reframe(stage_boxes(L), W, H)
+    f = [f"[0:v]split={1 + len(place)}[bgsrc]" + "".join(f"[r{k}]" for k in range(len(place)))]
+    f.append(f"[bgsrc]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=36,eq=brightness=-0.06[l0]")
+    cur = "l0"
+    for k, (b, w, h, x, y) in enumerate(place):
+        f.append(f"[r{k}]crop={b['w']}:{b['h']}:{b['x']}:{b['y']},scale={w}:{h}:flags=lanczos[p{k}]")
+        f.append(f"[{cur}][p{k}]overlay={x}:{y}[l{k + 1}]")
+        cur = f"l{k + 1}"
+    f.append(f"[{cur}]format=yuv420p[vout]")
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(master), "-filter_complex", ";".join(f), "-map", "[vout]"]
+    if audio:
+        cmd += ["-map", "0:a?", "-c:a", "aac", "-b:a", "192k"]
+    else:
+        cmd += ["-an"]
+    cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "19", "-movflags", "+faststart", str(out)]
+    subprocess.run(cmd, check=True)
+
+
+def make_gif(src: pathlib.Path, out: pathlib.Path, width: int, fps: int):
+    vf = f"fps={fps},scale={width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-vf", vf, str(out)], check=True)
+
+
+def fit_caption_height(T: dict, build_dir: pathlib.Path) -> dict:
+    """Sets L.caption.h to the tallest rendered caption PNG so crops hug the caption bar."""
+    L = T["L"]
+    if L["caption"].get("h"):
+        return L
+    hs = []
+    for it in T.get("items", []):
+        if it.get("kind") != "caption":
+            continue
+        png = build_dir / it["file"]
+        try:
+            with open(png, "rb") as fh:
+                head = fh.read(24)
+            if head[:4] == bytes([0x89, 0x50, 0x4E, 0x47]):  # PNG signature
+                hs.append(int.from_bytes(head[20:24], "big"))
+        except OSError:
+            pass
+    if hs:
+        L["caption"]["h"] = max(hs) + 8
+    return L
+
+
+def export_social(master: pathlib.Path, L: dict, vertical: bool, square_gif: bool, gif_width: int, gif_fps: int) -> dict:
+    res = {}
+    if vertical:
+        v_out = master.with_name(f"{master.stem}-vertical.mp4")
+        render_reframe(master, L, 1080, 1920, v_out, audio=True)
+        res["vertical_mp4_out"] = str(v_out)
+    if square_gif:
+        sq_tmp = master.with_name(f"{master.stem}-square-tmp.mp4")
+        render_reframe(master, L, 1080, 1080, sq_tmp, audio=False)
+        g_out = master.with_name(f"{master.stem}-square.gif")
+        make_gif(sq_tmp, g_out, gif_width, gif_fps)
+        sq_tmp.unlink(missing_ok=True)
+        res["square_gif_out"] = str(g_out)
+    return res
+
+
+def cmd_reframe(args):
+    base = pathlib.Path(args.target)
+    timeline_file = base / "build" / "timeline.json"
+    if not timeline_file.exists():
+        print(f"Error: {timeline_file} not found. Run the pipeline through 'assets.mjs' first.", file=sys.stderr)
+        sys.exit(1)
+    L = fit_caption_height(json.loads(timeline_file.read_text(encoding="utf-8")), base / "build")
+    master = pathlib.Path(args.video or (base / "demo-video.mp4"))
+    if not master.exists():
+        print(f"Error: {master} not found. Run 'compose' first or pass --video.", file=sys.stderr)
+        sys.exit(1)
+    want = {x.strip() for x in args.formats.split(",") if x.strip()}
+    unknown = want - {"vertical", "square-gif"}
+    if unknown:
+        print(f"Error: unknown format(s): {', '.join(sorted(unknown))}. Use vertical, square-gif.", file=sys.stderr)
+        sys.exit(1)
+    res = export_social(master, L, "vertical" in want, "square-gif" in want, args.gif_width, args.gif_fps)
+    write_json_output(args.output, {"status": "ok", "video_in": str(master), **res})
 
 
 # ============================================================================
@@ -758,6 +916,10 @@ def cmd_compose(args):
         )
         result_data["preview_gif_out"] = str(gif_out)
 
+    if args.vertical or args.square_gif:
+        fit_caption_height(T, B)
+    result_data.update(export_social(out_mp4, L, args.vertical, args.square_gif, args.square_gif_width, args.gif_fps))
+
     write_json_output(args.output, result_data)
 
 
@@ -814,9 +976,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument("--preview-gif", action="store_true", help="Also generate a silent auto-playing preview.gif for GitHub READMEs")
     p_cmp.add_argument("--silent-mp4", action="store_true", help="Also generate a silent *-silent.mp4 alongside the narrated MP4")
     p_cmp.add_argument("--gif-width", type=int, default=840, help="Width in pixels for preview.gif (default: 840)")
-    p_cmp.add_argument("--gif-fps", type=int, default=12, help="Frame rate for preview.gif (default: 12)")
+    p_cmp.add_argument("--gif-fps", type=int, default=12, help="Frame rate for preview.gif and the square GIF (default: 12)")
+    p_cmp.add_argument("--vertical", action="store_true", help="Also export a 1080x1920 (9:16) narrated MP4 for Reels, Shorts and TikTok")
+    p_cmp.add_argument("--square-gif", action="store_true", help="Also export a silent square (1:1) GIF for social feeds")
+    p_cmp.add_argument("--square-gif-width", type=int, default=720, help="Side length in pixels for the square GIF (default: 720)")
     p_cmp.add_argument("--output", required=True, help="Output JSON file path")
     p_cmp.set_defaults(func=cmd_compose)
+
+    p_rf = sub.add_parser("reframe", help="Re-frame an existing 1080p demo into vertical 9:16 MP4 and/or square GIF")
+    p_rf.add_argument("--target", default="demo", help="Target demo directory (needs build/timeline.json)")
+    p_rf.add_argument("--video", default=None, help="Landscape master MP4 (default: <target>/demo-video.mp4)")
+    p_rf.add_argument("--formats", default="vertical,square-gif", help="Comma list: vertical, square-gif (default: both)")
+    p_rf.add_argument("--gif-width", type=int, default=720, help="Side length in pixels for the square GIF (default: 720)")
+    p_rf.add_argument("--gif-fps", type=int, default=12, help="Frame rate for the square GIF (default: 12)")
+    p_rf.add_argument("--output", required=True, help="Output JSON file path")
+    p_rf.set_defaults(func=cmd_reframe)
 
     return parser
 

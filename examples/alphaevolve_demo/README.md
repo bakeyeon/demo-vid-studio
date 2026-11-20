@@ -4,6 +4,8 @@ This directory contains a complete end-to-end example of a **50-second, 1080p na
 
 ![AlphaEvolve Cyberpunk Demo Preview](./preview.gif)
 
+> **Note:** the cockpit in this video is an illustrative mock UI ([`cockpit.html`](./cockpit.html)). The generations and scores (0.724 → 1.000) are scripted to show the plugin's workflow; they are not results from a real AlphaEvolve run.
+
 ---
 
 ## 📼 Video Outputs in This Folder
@@ -13,6 +15,8 @@ This directory contains a complete end-to-end example of a **50-second, 1080p na
 | **[`preview.gif`](./preview.gif)** | Silent auto-playing animated walkthrough embedded above |
 | **[`alphaevolve-cyberpunk-demo-silent.mp4`](./alphaevolve-cyberpunk-demo-silent.mp4)** | Full 1080p 30fps silent video (`-an`) for lightweight embeds |
 | **[`alphaevolve-cyberpunk-demo.mp4`](./alphaevolve-cyberpunk-demo.mp4)** | Full 1080p 30fps narrated video with `en-US-AvaNeural` voice, synthwave BGM, synthesized SFX (`click`, `whoosh`, `ding`), and automatic voice ducking |
+| **[`alphaevolve-cyberpunk-demo-vertical.mp4`](./alphaevolve-cyberpunk-demo-vertical.mp4)** | 1080×1920 vertical cut with narration for Reels / Shorts / TikTok (`reframe --formats vertical`) |
+| **[`alphaevolve-cyberpunk-demo-square.gif`](./alphaevolve-cyberpunk-demo-square.gif)** | 720×720 silent square GIF for social feeds (`reframe --formats square-gif`) |
 | **[`preview.png`](./preview.png)** | 1080p still frame from Scene 4 showing the **live 2× cropped MAP-Elites region zoom** inside the right HUD card |
 
 ---
