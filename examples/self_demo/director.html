@@ -11,8 +11,12 @@
   }
   * { box-sizing: border-box; margin: 0; }
   html, body { background: var(--bg); color: var(--ink); font: 500 15px/1.4 "Segoe UI", system-ui, sans-serif; }
-  body { width: 390px; min-height: 844px; padding: 54px 16px 120px; }
-  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  body { width: 390px; min-height: 844px; padding: 62px 16px 120px; }
+  header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    position: sticky; top: 0; z-index: 20;
+    background: var(--bg); padding: 48px 4px 10px; margin-top: -48px;
+  }
   .logo { width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, var(--coral), var(--lilac));
     display: grid; place-items: center; color: #fff; font-weight: 800; box-shadow: 0 6px 14px rgba(169,139,255,.35); }
   header b { font-size: 17px; } header span { color: var(--muted); font-size: 12px; display: block; }
