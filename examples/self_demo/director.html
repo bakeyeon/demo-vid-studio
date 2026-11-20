@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo Vid Studio · Director</title>
+<style>
+  :root {
+    --bg: #fbf4ec; --ink: #2a2140; --muted: #6b6280; --card: #ffffff; --edge: #efe3d6;
+    --coral: #ff7a66; --blue: #5b9dff; --green: #57c27a; --sun: #ffc24a; --lilac: #a98bff;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: var(--bg); color: var(--ink); font: 500 15px/1.4 "Segoe UI", system-ui, sans-serif; }
+  body { width: 390px; min-height: 844px; padding: 54px 16px 120px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .logo { width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, var(--coral), var(--lilac));
+    display: grid; place-items: center; color: #fff; font-weight: 800; box-shadow: 0 6px 14px rgba(169,139,255,.35); }
+  header b { font-size: 17px; } header span { color: var(--muted); font-size: 12px; display: block; }
+  .msg { max-width: 300px; padding: 11px 14px; border-radius: 18px; margin: 8px 0; box-shadow: 0 4px 12px rgba(42,33,64,.06);
+    opacity: 0; transform: translateY(8px); transition: .35s ease; }
+  .msg.on { opacity: 1; transform: none; }
+  .me { margin-left: auto; background: var(--ink); color: #fff; border-bottom-right-radius: 6px; }
+  .bot { background: var(--card); border: 1px solid var(--edge); border-bottom-left-radius: 6px; }
+  .bot small { display: block; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; margin-bottom: 3px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { padding: 6px 11px; border-radius: 999px; font-size: 13px; background: #f4eefc; color: #5a3fc0; border: 1px solid #e3d8fb; }
+  .styles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .st { border-radius: 14px; padding: 8px; border: 2px solid transparent; background: #faf7f3; text-align: center; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .st i { display: block; height: 38px; border-radius: 10px; margin-bottom: 6px; }
+  .st.sel { border-color: var(--coral); box-shadow: 0 6px 14px rgba(255,122,102,.25); transform: translateY(-2px); }
+  .fmt { display: flex; gap: 8px; margin-top: 10px; }
+  .fm { flex: 1; border-radius: 14px; padding: 10px 6px; background: #faf7f3; border: 2px solid transparent; text-align: center; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .fm .shape { margin: 0 auto 8px; background: #d9cfe9; border-radius: 5px; }
+  .fm.sel { border-color: var(--blue); background: #eef4ff; }
+  .fm.sel .shape { background: var(--blue); }
+  .btn { display: block; width: 100%; margin-top: 10px; padding: 11px; border: 0; border-radius: 14px; font: 700 15px "Segoe UI", sans-serif;
+    color: #fff; background: var(--ink); box-shadow: 0 6px 14px rgba(42,33,64,.2); cursor: pointer; }
+  .btn.go { background: linear-gradient(90deg, var(--coral), var(--lilac)); }
+  .sb { margin-top: 8px; border-radius: 12px; overflow: hidden; border: 1px solid var(--edge); }
+  .sb div { display: flex; gap: 8px; padding: 7px 10px; font-size: 12.5px; background: #fff; }
+  .sb div + div { border-top: 1px solid var(--edge); }
+  .sb em { font-style: normal; font-weight: 800; color: var(--coral); width: 16px; }
+  .stage { display: flex; align-items: center; gap: 8px; margin: 7px 0; font-size: 13px; }
+  .stage .bar { flex: 1; height: 8px; border-radius: 99px; background: #efe7f7; overflow: hidden; }
+  .stage .bar i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--green), var(--blue)); transition: width .9s ease; }
+  .stage .lbl { width: 92px; }
+  .stage .ok { width: 16px; color: var(--green); font-weight: 800; opacity: 0; transition: .3s; }
+  .files { margin-top: 8px; display: grid; gap: 6px; }
+  .file { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: #f3fbf5; border: 1px solid #cfeedd; font-size: 13px; font-weight: 700; }
+  .file span { margin-left: auto; color: var(--green); }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+  <header><div class="logo">▶</div><div><b>Demo Vid Studio</b><span>your agent, directing</span></div></header>
+
+  <div class="msg me on">Make a demo video for this project 🎬</div>
+
+  <div class="msg bot" id="scan"><small>DIRECTOR</small>I scanned the repo. Worth showing:
+    <div class="chips"><span class="chip">Storyboard first</span><span class="chip">Synced narration</span><span class="chip">Live zooms</span><span class="chip">Style presets</span></div>
+    <button class="btn" id="ok1">Looks good</button>
+  </div>
+
+  <div class="msg bot hide" id="style"><small>DIRECTOR</small>Which style?
+    <div class="styles" id="styles">
+      <div class="st"><i style="background:linear-gradient(135deg,#a5f3fc,#ddd6fe)"></i>ambient</div>
+      <div class="st"><i style="background:#1f2937"></i>minimal</div>
+      <div class="st"><i style="background:radial-gradient(#0f172a 2px,transparent 2px) 0 0/9px 9px,#fde047"></i>cartoon</div>
+      <div class="st"><i style="background:linear-gradient(135deg,#fed7aa,#bbf7d0)"></i>storybook</div>
+      <div class="st" id="clay"><i style="background:radial-gradient(circle at 30% 35%,#ff9b8a 22%,transparent 23%),radial-gradient(circle at 70% 60%,#8fbcff 20%,transparent 21%),#fbefe3"></i>clay3d</div>
+      <div class="st"><i style="background:linear-gradient(#05050a,#05050a),#05050a;box-shadow:inset 0 0 0 2px #22d3ee,inset 0 0 12px #d946ef"></i>cyberpunk</div>
+    </div>
+  </div>
+
+  <div class="msg bot hide" id="formats"><small>DIRECTOR</small>Want social cuts too?
+    <div class="fmt" id="fmts">
+      <div class="fm sel"><div class="shape" style="width:46px;height:26px"></div>16:9 video</div>
+      <div class="fm" id="fv"><div class="shape" style="width:20px;height:34px"></div>9:16 Reels</div>
+      <div class="fm" id="fs"><div class="shape" style="width:30px;height:30px"></div>1:1 square</div>
+    </div>
+    <button class="btn" id="ok2">Next</button>
+  </div>
+
+  <div class="msg bot hide" id="board"><small>DIRECTOR · storyboard.md</small>Here's the plan. OK to shoot?
+    <div class="sb">
+      <div><em>1</em>Intro · what the skill does</div>
+      <div><em>2</em>Pick features, style, formats</div>
+      <div><em>3</em>Approve the storyboard</div>
+      <div><em>4</em>Five stages render the video</div>
+    </div>
+    <button class="btn go" id="shoot">Shoot it 🎬</button>
+  </div>
+
+  <div class="msg bot hide" id="run"><small>DIRECTOR · pipeline</small>
+    <div class="stage"><span class="lbl">1 narration</span><span class="bar"><i></i></span><span class="ok">✓</span></div>
+    <div class="stage"><span class="lbl">2 record 2×</span><span class="bar"><i></i></span><span class="ok">✓</span></div>
+    <div class="stage"><span class="lbl">3 30 fps</span><span class="bar"><i></i></span><span class="ok">✓</span></div>
+    <div class="stage"><span class="lbl">4 cards</span><span class="bar"><i></i></span><span class="ok">✓</span></div>
+    <div class="stage"><span class="lbl">5 compose</span><span class="bar"><i></i></span><span class="ok">✓</span></div>
+    <div class="files hide" id="files">
+      <div class="file">🎞 demo-video.mp4<span>16:9</span></div>
+      <div class="file">⬛ demo-video-square.mp4<span>1:1</span></div>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => { const e = $(id); e.classList.remove('hide'); requestAnimationFrame(() => requestAnimationFrame(() => e.classList.add('on'))); };
+  const scrollEnd = () => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  requestAnimationFrame(() => $('scan').classList.add('on'));
+  $('ok1').onclick = () => { $('ok1').classList.add('hide'); show('style'); setTimeout(scrollEnd, 50); };
+  $('styles').querySelectorAll('.st').forEach((el) => el.onclick = () => {
+    $('styles').querySelectorAll('.st').forEach((x) => x.classList.remove('sel'));
+    el.classList.add('sel');
+    setTimeout(() => { show('formats'); setTimeout(scrollEnd, 50); }, 500);
+  });
+  $('fmts').querySelectorAll('.fm').forEach((el) => el.onclick = () => el.classList.toggle('sel'));
+  $('ok2').onclick = () => { $('ok2').classList.add('hide'); show('board'); setTimeout(scrollEnd, 50); };
+  $('shoot').onclick = () => {
+    $('shoot').classList.add('hide'); show('run'); setTimeout(scrollEnd, 50);
+    document.querySelectorAll('#run .stage').forEach((st, i) => setTimeout(() => {
+      st.querySelector('i').style.width = '100%';
+      setTimeout(() => { st.querySelector('.ok').style.opacity = 1; }, 900);
+    }, 300 + i * 1000));
+    setTimeout(() => { $('files').classList.remove('hide'); scrollEnd(); }, 300 + 5 * 1000 + 300);
+  };
+</script>
+</body>
+</html>

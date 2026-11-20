@@ -94,8 +94,9 @@ uv run skills/demo-vid-studio/scripts/studio_cli.py compose --target demo --styl
      - `desktop` (`1280×800` wide browser window at 2× DPR on the left, `560×620` feature card on the right + bottom wide caption)
      - Narration language & voice (e.g., `en-US-AvaNeural`, `en-GB-SoniaNeural`, `ko-KR-SunHiNeural`, `ja-JP-NanamiNeural`).
    - **AI Asset Generation (Optional)**: Ask if they want pure HTML/CSS/SVG rendering (instant, free) or AI-generated background/illustrations via an installed plugin or API key (`Gemini`, `Higgsfield`, `Adobe Firefly`, `Fal`, `OpenAI`).
+   - **Blender 3D (Optional, free)**: Run `check`; if it reports a `blender` path, ask: *"Blender is installed. Shall I render a 3D stage background and a 3D title intro/outro in the same style?"* It needs no API key. Good fits: `clay3d`, `cyberpunk`, `cartoon`. For square or vertical cuts, render the intro/outro and a backdrop at that size too (`--width 1080 --height 1080`, or `1080 1920`).
    - **Silent GIF / Silent MP4 Preview (Optional)**: Ask: *"Would you also like me to generate a silent auto-playing GIF (`preview.gif`) and silent MP4 (`*-silent.mp4`) so you can embed the demo directly in your GitHub `README.md`?"*
-   - **Social Formats (Optional, always ask)**: Ask: *"Do you also want versions for social media at the same time? (a) a vertical 1080×1920 MP4 with narration for Reels / Shorts / TikTok, (b) a square GIF for feeds, (c) both, or (d) just the 16:9 video."* Map the answer to `--vertical` and/or `--square-gif` on `compose`, and record it in the storyboard summary. Mention that these are re-framed from the same take (device and card stacked, caption underneath), so they cost no extra recording. For the `desktop` layout the square GIF drops the side card so the screen stays readable.
+   - **Social Formats (Optional, always ask)**: Ask: *"Do you also want versions for social media at the same time? (a) a vertical 1080×1920 MP4 with narration for Reels / Shorts / TikTok, (b) a square 1080×1080 MP4, (c) a square GIF for feeds, any combination, or (d) just the 16:9 video."* Map the answer to `--vertical`, `--square` and/or `--square-gif` on `compose`, and record it in the storyboard summary. Mention that these are re-framed from the same take (device and card stacked, caption underneath), so they cost no extra recording. For the `desktop` layout the square GIF drops the side card so the screen stays readable.
 
 ### Phase 2: Markdown Storyboard Review (`demo/storyboard.md`)
 
@@ -185,11 +186,20 @@ Always run `studio_cli.py` via `uv run`. Every subcommand writes structured JSON
      --asset-out demo/build/bg_ai.png \
      --output demo/asset_result.json
    ```
-7. **`reframe`**: Re-frames an existing landscape demo into social formats without re-recording (needs `build/timeline.json` from `assets.mjs`).
+7. **`generate-asset --provider blender`** (free, local): renders a 3D stage (`--kind background`, PNG) or a 3D title clip (`--kind intro|outro --title "..." --subtitle "..." --seconds 3`, MP4). Save the stage as `demo/build/bg_ai.png` and `assets.mjs` uses it automatically.
    ```bash
-   uv run scripts/studio_cli.py reframe --target demo --formats vertical,square-gif --output demo/reframe_result.json
+   uv run scripts/studio_cli.py generate-asset --provider blender --style clay3d --kind background --asset-out demo/build/bg_ai.png --output demo/bg.json
+   uv run scripts/studio_cli.py generate-asset --provider blender --style clay3d --kind intro --title "My App" --subtitle "One line pitch" --width 1080 --height 1080 --asset-out demo/clips/intro_sq.mp4 --output demo/intro.json
    ```
-8. **`compose`**: Generates the `ffmpeg` filter graph (`build/filter.txt`) with card slide-up animations, live cropped UI zooms, style-matched synthesized SFX (`click`, `whoosh`, `ding`), ducked background music (`build/mix.wav`), and renders the final 1080p MP4 (`demo/demo-video.mp4`).
+8. **`wrap`**: Adds intro/outro clips around any cut (16:9, 9:16 or 1:1), fitted to its size; `--gif` also writes a GIF.
+   ```bash
+   uv run scripts/studio_cli.py wrap --video demo/demo-video-square.mp4 --intro demo/clips/intro_sq.mp4 --outro demo/clips/outro_sq.mp4 --gif --output demo/wrap.json
+   ```
+9. **`reframe`**: Re-frames an existing landscape demo into social formats without re-recording (needs `build/timeline.json` from `assets.mjs`).
+   ```bash
+   uv run scripts/studio_cli.py reframe --target demo --formats vertical,square,square-gif --backdrop demo/clips/bg_square.png --output demo/reframe_result.json
+   ```
+10. **`compose`**: Generates the `ffmpeg` filter graph (`build/filter.txt`) with card slide-up animations, live cropped UI zooms, style-matched synthesized SFX (`click`, `whoosh`, `ding`), ducked background music (`build/mix.wav`), and renders the final 1080p MP4 (`demo/demo-video.mp4`).
    ```bash
    uv run scripts/studio_cli.py compose --target demo --style ambient --video-out demo/demo-video.mp4 --output demo/compose_result.json
    ```

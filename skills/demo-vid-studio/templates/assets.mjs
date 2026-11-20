@@ -243,8 +243,9 @@ const render = async (html, file, sel, transparent = true) => {
 
 // ---------- Stage Background (Uses bg_ai.png if generated, otherwise pure CSS preset) ----------
 const aiBgPath = path.join(OUT, 'bg_ai.png');
+// Embedded as a data URI: a page made with setContent() cannot load file:// images.
 const bgImageOverlay = fs.existsSync(aiBgPath)
-  ? `background-image: url('file:///${aiBgPath.replace(/\\/g, '/')}'); background-size: cover; background-position: center;`
+  ? `background-image: url('data:image/png;base64,${fs.readFileSync(aiBgPath).toString('base64')}'); background-size: cover; background-position: center;`
   : `background: ${T.bgCss};`;
 
 await render(`<div id="bg" style="width:${L.W}px;height:${L.H}px;position:relative;${bgImageOverlay}">

@@ -1,0 +1,14 @@
+{
+  "voice": "en-US-AvaNeural",
+  "style": "clay3d",
+  "layout": "mobile",
+  "lines": {
+    "intro1": { "say": "This is Demo Vid Studio, a skill that turns your prototype into a narrated demo video.", "cap": "Demo Vid Studio: prototype in, narrated demo video out." },
+    "scan":   { "say": "Ask your agent for a demo, and it scans the project and suggests what to show.", "cap": "1 · The agent scans your project and suggests highlights." },
+    "style":  { "say": "Then you pick a look. This one is clay 3D, with a background rendered in Blender.", "cap": "2 · Six styles. This is clay3d, with a Blender background." },
+    "formats":{ "say": "It also asks about social cuts, like a vertical reel or a square video.", "cap": "3 · Social cuts: 9:16 reels and 1:1 square." },
+    "board":  { "say": "Nothing is recorded until you approve the storyboard.", "cap": "4 · You approve the storyboard before anything is shot." },
+    "run":    { "say": "Then five stages run on their own: narration, recording, frames, cards, and the final mix.", "cap": "5 · Narration, 2× recording, 30 fps frames, cards, final mix." },
+    "outro":  { "say": "It's free and open source. Find it on GitHub.", "cap": "github.com/bakeyeon/demo-vid-studio" }
+  }
+}

@@ -27,10 +27,14 @@ Inspired by the narrated prototype walkthrough pipeline from [`sentiment_transla
    - Works 100% free & offline with pure HTML/CSS/SVG rendering by default.
    - Optionally integrates with installed agent plugins (`image-generator`, `gemini-api-cli`, `gemini-omni-flash-api`, Canva/InVideo) or API keys in `~/.env` / `.env` (**Google Gemini / Imagen 3**, **Higgsfield AI**, **Adobe Firefly**, **Fal.ai / Flux**, **OpenAI**) to generate custom 3D clay dioramas, storybook illustrations, or studio backgrounds.
    - Higgsfield, Adobe Firefly and Fal are **experimental**: their endpoints and auth may need adjusting for your account.
-6. **Social Formats (`--vertical`, `--square-gif`)**
-   - The agent asks whether you also want a **1080×1920 vertical MP4** (Reels, Shorts, TikTok) and/or a **square GIF** for feeds.
+6. **Social Formats (`--vertical`, `--square`, `--square-gif`)**
+   - The agent asks whether you also want a **1080×1920 vertical MP4** (Reels, Shorts, TikTok), a **1080×1080 square MP4**, and/or a **square GIF** for feeds.
    - Both are re-framed from the 1080p master: the device and the feature card are stacked (or set side by side when that reads better), the caption sits underneath, and a blurred copy of the video fills the background. No re-recording needed.
-   - Already have a video? `studio_cli.py reframe --target demo --formats vertical,square-gif --output demo/reframe.json`
+   - Already have a video? `studio_cli.py reframe --target demo --formats vertical,square,square-gif --output demo/reframe.json`
+7. **Blender 3D Stage & Titles (free, no API key)**
+   - If [Blender](https://www.blender.org) is installed, `generate-asset --provider blender` renders a style-matched 3D set: a stage background (`--kind background`) or a 3D title intro/outro clip (`--kind intro|outro --title ... --subtitle ...`), at any size (`--width/--height`, e.g. 1080×1080 for a square cut).
+   - `compose --intro-clip/--outro-clip` puts the clips around the 16:9 master; `wrap` does the same for any cut (vertical or square), fitted to its size.
+   - Blender is found on `PATH`, in the usual install folders, or via `BLENDER_PATH`. Tested with Blender 5.3 (EEVEE).
 
 ---
 
@@ -110,7 +114,15 @@ The agent will:
 
 ---
 
-## 📂 Complete Example (`examples/alphaevolve_demo/`)
+## 📂 Examples
+
+### Square clay3d demo of this skill (`examples/self_demo/`)
+
+[`examples/self_demo/`](./examples/self_demo/) is a 48-second **1080×1080** demo of Demo Vid Studio made with Demo Vid Studio: `clay3d` style, a Blender-rendered stage and square backdrop, and Blender 3D title intro/outro.
+
+![Demo Vid Studio square demo](./examples/self_demo/demo-vid-studio-square.gif)
+
+### Cyberpunk desktop demo (`examples/alphaevolve_demo/`)
 
 See [`examples/alphaevolve_demo/`](./examples/alphaevolve_demo/) for a complete end-to-end showcase demonstrating how `demo-vid-studio` directed and produced a **50-second Cyberpunk 1080p demo video** for [`bakeyeon/alphaevolve-plugin`](https://github.com/bakeyeon/alphaevolve-plugin):
 

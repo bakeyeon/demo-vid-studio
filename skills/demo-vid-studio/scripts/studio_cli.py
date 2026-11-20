@@ -115,6 +115,39 @@ def api_request_json(url: str, payload: dict, headers: dict, rate_limit_rps: flo
     raise RuntimeError(f"Exhausted retries calling {redact_url(url)}")
 
 
+def find_blender():
+    """Finds the Blender executable: BLENDER_PATH, PATH, then the usual install folders."""
+    env = os.environ.get("BLENDER_PATH")
+    if env and pathlib.Path(env).exists():
+        return env
+    hit = shutil.which("blender")
+    if hit:
+        return hit
+    candidates = [pathlib.Path("/Applications/Blender.app/Contents/MacOS/Blender")]
+    for root in [os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("LOCALAPPDATA", "")]:
+        if root:
+            candidates += sorted(pathlib.Path(root).glob("Blender Foundation/Blender*/blender.exe"), reverse=True)
+            candidates += sorted(pathlib.Path(root).glob("Programs/Blender Foundation/Blender*/blender.exe"), reverse=True)
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return None
+
+
+def run_blender(extra_args: list, timeout: int = 1800):
+    exe = find_blender()
+    if not exe:
+        print("Error: Blender not found. Install it from blender.org (free, open source) or set BLENDER_PATH.", file=sys.stderr)
+        sys.exit(1)
+    script = SKILL_ROOT / "scripts" / "blender_scene.py"
+    cmd = [exe, "-b", "--factory-startup", "-noaudio", "-P", str(script), "--", *extra_args]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if res.returncode != 0 or "[blender_scene]" not in (res.stdout or ""):
+        tail = "\n".join(((res.stdout or "") + (res.stderr or "")).splitlines()[-25:])
+        raise RuntimeError(f"Blender render failed (exit {res.returncode}):\n{tail}")
+    return exe
+
+
 def write_json_output(output_path: str, data: dict):
     out_file = pathlib.Path(output_path)
     out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +185,7 @@ def cmd_check(args):
         except ImportError:
             checks["python_modules"][mod] = False
 
+    checks["blender"] = find_blender()
     load_dotenv_files()
     checks["configured_api_providers"] = {
         "gemini": bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
@@ -467,6 +501,11 @@ STYLE_PROMPT_SUFFIX = {
 def cmd_generate_asset(args):
     load_dotenv_files()
     provider = args.provider.lower()
+    if provider == "blender":
+        return generate_blender_asset(args)
+    if not args.prompt:
+        print("Error: --prompt is required for AI providers.", file=sys.stderr)
+        sys.exit(1)
     style_hint = STYLE_PROMPT_SUFFIX.get(args.style, "")
     full_prompt = f"{args.prompt}. Style: {style_hint}" if style_hint else args.prompt
     asset_out = pathlib.Path(args.asset_out)
@@ -562,6 +601,63 @@ def cmd_generate_asset(args):
     })
 
 
+def generate_blender_asset(args):
+    """Renders a 3D stage background (PNG) or a 3D title intro/outro clip (MP4) in Blender."""
+    asset_out = pathlib.Path(args.asset_out)
+    asset_out.parent.mkdir(parents=True, exist_ok=True)
+    common = ["--style", args.style, "--width", str(args.width), "--height", str(args.height), "--seed", str(args.seed)]
+    if args.kind == "background":
+        if asset_out.suffix.lower() != ".png":
+            asset_out = asset_out.with_suffix(".png")
+        exe = run_blender(["--kind", "background", "--out", str(asset_out.resolve()), *common])
+    else:
+        if asset_out.suffix.lower() != ".mp4":
+            asset_out = asset_out.with_suffix(".mp4")
+        frames = asset_out.parent / f"{asset_out.stem}_frames"
+        if frames.exists():
+            shutil.rmtree(frames)
+        frames.mkdir(parents=True)
+        exe = run_blender(["--kind", args.kind, "--title", args.title or "", "--subtitle", args.subtitle or "",
+                           "--seconds", str(args.seconds), "--fps", "30",
+                           "--out", str((frames / "f_####").resolve()), *common])
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-framerate", "30", "-i", str(frames / "f_%04d.png"),
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart", str(asset_out)],
+                       check=True)
+        shutil.rmtree(frames, ignore_errors=True)
+    write_json_output(args.output, {
+        "status": "ok", "provider": "blender", "blender": exe, "kind": args.kind,
+        "style": args.style, "asset_out": str(asset_out),
+    })
+
+
+def video_size(path) -> tuple:
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True).stdout.strip()
+    w, h = out.split(",")[:2]
+    return int(w), int(h)
+
+
+def attach_clips(master: pathlib.Path, out: pathlib.Path, intro, outro, fps: int = 30):
+    """Puts optional intro/outro clips (silent or not) around the narrated master, fitted to the master's size."""
+    W, H = video_size(master)
+    clips = [c for c in [intro, master, outro] if c]
+    inputs, f = [], []
+    for k, c in enumerate(clips):
+        inputs += ["-i", str(c)]
+        f.append(f"[{k}:v]scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,"
+                 f"fps={fps},setsar=1,format=yuv420p[v{k}]")
+        if pathlib.Path(c) == master:
+            f.append(f"[{k}:a]aformat=sample_rates=44100:channel_layouts=stereo[a{k}]")
+        else:
+            dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(c)],
+                                       capture_output=True, text=True, check=True).stdout.strip() or 0)
+            f.append(f"anullsrc=r=44100:cl=stereo,atrim=0:{dur:.3f}[a{k}]")
+    f.append("".join(f"[v{k}][a{k}]" for k in range(len(clips))) + f"concat=n={len(clips)}:v=1:a=1[vout][aout]")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(f), "-map", "[vout]", "-map", "[aout]",
+                    "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart", str(out)], check=True)
+
+
 # ============================================================================
 # Social formats: re-frame the 1920x1080 master into vertical / square
 # ============================================================================
@@ -569,20 +665,26 @@ def _even(v):
     return max(2, int(v) // 2 * 2)
 
 
-def _clamp_box(x, y, w, h, W=1920, H=1080):
+def _clamp_box(x, y, w, h, W=1920, H=1080, r=0):
     x, y = max(0, int(x)), max(0, int(y))
     w, h = min(int(w), W - x), min(int(h), H - y)
-    return {"x": x // 2 * 2, "y": y // 2 * 2, "w": _even(w), "h": _even(h)}
+    return {"x": x // 2 * 2, "y": y // 2 * 2, "w": _even(w), "h": _even(h), "r": r}
 
 
-def stage_boxes(L: dict) -> dict:
-    """The three regions of the landscape stage worth keeping: device (with frame), card, caption."""
+# Corner radii of the rendered cards / captions per style (match templates/assets.mjs).
+CARD_RADIUS = {"ambient": 32, "minimal": 20, "cartoon": 28, "storybook": 26, "clay3d": 42, "cyberpunk": 16}
+CAP_RADIUS = {"ambient": 24, "minimal": 14, "cartoon": 22, "storybook": 20, "clay3d": 32, "cyberpunk": 12}
+
+
+def stage_boxes(L: dict, style: str = "ambient") -> dict:
+    """The three regions of the landscape stage worth keeping, cropped to their exact outlines."""
     S, BZ, C, CAP = L["screen"], L["bezel"], L["card"], L["caption"]
     fo = L.get("frameOffset", {"x": S["x"] - BZ, "y": S["y"] - BZ})
-    device = _clamp_box(fo["x"], fo["y"], S["w"] + 2 * BZ, S["y"] + S["h"] + BZ - fo["y"])
-    card = _clamp_box(C["x"] - 6, C["y"] - 6, C["w"] + 12, C["h"] + 12)  # 6px for the card glow
+    phone = S["h"] > S["w"]
+    device = _clamp_box(fo["x"], fo["y"], S["w"] + 2 * BZ, S["y"] + S["h"] + BZ - fo["y"], r=(40 + BZ) if phone else (16 + BZ))
+    card = _clamp_box(C["x"], C["y"], C["w"], C["h"], r=CARD_RADIUS.get(style, 28))
     cap_h = CAP.get("h") or min(130, 1080 - CAP["y"] - 6)
-    caption = _clamp_box(CAP["x"], CAP["y"], CAP["w"], cap_h)
+    caption = _clamp_box(CAP["x"], CAP["y"], CAP["w"], cap_h, r=CAP_RADIUS.get(style, 20))
     return {"device": device, "card": card, "caption": caption}
 
 
@@ -600,7 +702,7 @@ def plan_reframe(boxes: dict, W: int, H: int, margin: int = 48, gap: int = 32) -
 
 def _plan(boxes, W, H, margin, gap, with_card):
     d, p = boxes["device"], boxes["caption"]
-    c = boxes["card"] if with_card else {"x": 0, "y": 0, "w": 2, "h": 0}
+    c = boxes["card"] if with_card else {"x": 0, "y": 0, "w": 2, "h": 0, "r": 0}
     sp = min(1.0, (W - 2 * margin) / p["w"])
     ph = p["h"] * sp
     area_h = H - 2 * margin - ph - gap
@@ -614,37 +716,61 @@ def _plan(boxes, W, H, margin, gap, with_card):
     if stacked >= side:
         block_h = dh + gap + ch
         top = margin + max(0, (area_h - block_h) // 2)
-        place = [(d, dw, dh, (W - dw) // 2, top), (c, cw, ch, (W - cw) // 2, top + dh + gap)]
+        place = [(d, dw, dh, (W - dw) // 2, top, s), (c, cw, ch, (W - cw) // 2, top + dh + gap, s)]
         bottom = top + block_h
     else:
         block_w, block_h = dw + gap + cw, max(dh, ch)
         left = (W - block_w) // 2
         top = margin + max(0, (area_h - block_h) // 2)
-        place = [(d, dw, dh, left, top + (block_h - dh) // 2), (c, cw, ch, left + dw + gap, top + (block_h - ch) // 2)]
+        place = [(d, dw, dh, left, top + (block_h - dh) // 2, s), (c, cw, ch, left + dw + gap, top + (block_h - ch) // 2, s)]
         bottom = top + block_h
     if not with_card:
         place = place[:1]
         bottom = place[0][4] + dh
-    place.append((p, pw, phe, (W - pw) // 2, min(H - margin - phe, bottom + gap)))
+    place.append((p, pw, phe, (W - pw) // 2, min(H - margin - phe, bottom + gap), sp))
     return place, s
 
 
-def render_reframe(master: pathlib.Path, L: dict, W: int, H: int, out: pathlib.Path, audio: bool = True):
-    place = plan_reframe(stage_boxes(L), W, H)
-    f = [f"[0:v]split={1 + len(place)}[bgsrc]" + "".join(f"[r{k}]" for k in range(len(place)))]
-    f.append(f"[bgsrc]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=36,eq=brightness=-0.06[l0]")
+def _round_mask(w: int, h: int, r: int) -> str:
+    """ffmpeg source for a white rounded rectangle on black, used as an alpha mask."""
+    r = max(1, min(r, w // 2, h // 2))
+    inside = (f"if(gt(abs(X-{w}/2)\\,{w}/2-{r})*gt(abs(Y-{h}/2)\\,{h}/2-{r})\\,"
+              f"if(lte(hypot(abs(X-{w}/2)-({w}/2-{r})\\,abs(Y-{h}/2)-({h}/2-{r}))\\,{r})\\,255\\,0)\\,255)")
+    # one frame of geq, then looped: evaluating geq on every frame is very slow
+    return f"color=c=white:s={w}x{h}:r=30:d=0.034,format=gray,geq=lum={inside},loop=loop=-1:size=1:start=0"
+
+
+def render_reframe(master: pathlib.Path, L: dict, W: int, H: int, out: pathlib.Path, audio: bool = True,
+                   style: str = "ambient", backdrop=None, blur: int = 10):
+    """Lays the device, card and caption of the 16:9 master onto a W x H canvas.
+    Each piece is cut to its exact outline with rounded corners; the backdrop is the stage
+    background (blurred), or a blurred copy of the video when no background image is given."""
+    place = plan_reframe(stage_boxes(L, style), W, H)
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(master)],
+                               capture_output=True, text=True, check=True).stdout.strip())
+    inputs = ["-i", str(master)]
+    n = len(place)
+    if backdrop and pathlib.Path(backdrop).exists():
+        inputs += ["-loop", "1", "-framerate", "30", "-t", f"{dur:.3f}", "-i", str(backdrop)]
+        f = [f"[0:v]split={n}" + "".join(f"[r{k}]" for k in range(n)),
+             f"[1:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}" + (f",gblur=sigma={blur}" if blur else "") + ",format=rgba[l0]"]
+    else:
+        f = [f"[0:v]split={1 + n}[bgsrc]" + "".join(f"[r{k}]" for k in range(n)),
+             f"[bgsrc]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=36,eq=brightness=-0.06,format=rgba[l0]"]
     cur = "l0"
-    for k, (b, w, h, x, y) in enumerate(place):
-        f.append(f"[r{k}]crop={b['w']}:{b['h']}:{b['x']}:{b['y']},scale={w}:{h}:flags=lanczos[p{k}]")
-        f.append(f"[{cur}][p{k}]overlay={x}:{y}[l{k + 1}]")
+    for k, (b, w, h, x, y, s) in enumerate(place):
+        f.append(f"{_round_mask(w, h, int(b['r'] * s))}[mk{k}]")
+        f.append(f"[r{k}]crop={b['w']}:{b['h']}:{b['x']}:{b['y']},scale={w}:{h}:flags=lanczos,format=rgba[c{k}]")
+        f.append(f"[c{k}][mk{k}]alphamerge[p{k}]")
+        f.append(f"[{cur}][p{k}]overlay={x}:{y}:shortest=1[l{k + 1}]")
         cur = f"l{k + 1}"
     f.append(f"[{cur}]format=yuv420p[vout]")
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(master), "-filter_complex", ";".join(f), "-map", "[vout]"]
+    cmd = ["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(f), "-map", "[vout]"]
     if audio:
         cmd += ["-map", "0:a?", "-c:a", "aac", "-b:a", "192k"]
     else:
         cmd += ["-an"]
-    cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "19", "-movflags", "+faststart", str(out)]
+    cmd += ["-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-movflags", "+faststart", str(out)]
     subprocess.run(cmd, check=True)
 
 
@@ -671,24 +797,55 @@ def fit_caption_height(T: dict, build_dir: pathlib.Path) -> dict:
         except OSError:
             pass
     if hs:
-        L["caption"]["h"] = max(hs) + 8
+        L["caption"]["h"] = max(hs)
     return L
 
 
-def export_social(master: pathlib.Path, L: dict, vertical: bool, square_gif: bool, gif_width: int, gif_fps: int) -> dict:
+def export_social(master: pathlib.Path, L: dict, vertical: bool, square_gif: bool, gif_width: int, gif_fps: int,
+                  square: bool = False, style: str = "ambient", build_dir=None, backdrop=None) -> dict:
     res = {}
+    blur = 0 if backdrop else 10
+    if not backdrop and build_dir:
+        for name in ("bg_ai.png", "bg.png"):
+            if (pathlib.Path(build_dir) / name).exists():
+                backdrop = pathlib.Path(build_dir) / name
+                break
+    kw = {"style": style, "backdrop": backdrop, "blur": blur}
+    if square:
+        s_out = master.with_name(f"{master.stem}-square.mp4")
+        render_reframe(master, L, 1080, 1080, s_out, audio=True, **kw)
+        res["square_mp4_out"] = str(s_out)
     if vertical:
         v_out = master.with_name(f"{master.stem}-vertical.mp4")
-        render_reframe(master, L, 1080, 1920, v_out, audio=True)
+        render_reframe(master, L, 1080, 1920, v_out, audio=True, **kw)
         res["vertical_mp4_out"] = str(v_out)
     if square_gif:
         sq_tmp = master.with_name(f"{master.stem}-square-tmp.mp4")
-        render_reframe(master, L, 1080, 1080, sq_tmp, audio=False)
+        render_reframe(master, L, 1080, 1080, sq_tmp, audio=False, **kw)
         g_out = master.with_name(f"{master.stem}-square.gif")
         make_gif(sq_tmp, g_out, gif_width, gif_fps)
         sq_tmp.unlink(missing_ok=True)
         res["square_gif_out"] = str(g_out)
     return res
+
+
+def cmd_wrap(args):
+    video = pathlib.Path(args.video)
+    if not video.exists():
+        print(f"Error: {video} not found.", file=sys.stderr)
+        sys.exit(1)
+    for c in (args.intro, args.outro):
+        if c and not pathlib.Path(c).exists():
+            print(f"Error: {c} not found.", file=sys.stderr)
+            sys.exit(1)
+    out = pathlib.Path(args.video_out or video.with_name(f"{video.stem}-wrapped.mp4"))
+    attach_clips(video, out, args.intro, args.outro)
+    res = {"status": "ok", "video_in": str(video), "video_out": str(out), "intro": args.intro, "outro": args.outro}
+    if args.gif:
+        g = out.with_suffix(".gif")
+        make_gif(out, g, args.gif_width, args.gif_fps)
+        res["gif_out"] = str(g)
+    write_json_output(args.output, res)
 
 
 def cmd_reframe(args):
@@ -697,17 +854,20 @@ def cmd_reframe(args):
     if not timeline_file.exists():
         print(f"Error: {timeline_file} not found. Run the pipeline through 'assets.mjs' first.", file=sys.stderr)
         sys.exit(1)
-    L = fit_caption_height(json.loads(timeline_file.read_text(encoding="utf-8")), base / "build")
+    T = json.loads(timeline_file.read_text(encoding="utf-8"))
+    L = fit_caption_height(T, base / "build")
     master = pathlib.Path(args.video or (base / "demo-video.mp4"))
     if not master.exists():
         print(f"Error: {master} not found. Run 'compose' first or pass --video.", file=sys.stderr)
         sys.exit(1)
     want = {x.strip() for x in args.formats.split(",") if x.strip()}
-    unknown = want - {"vertical", "square-gif"}
+    unknown = want - {"vertical", "square", "square-gif"}
     if unknown:
-        print(f"Error: unknown format(s): {', '.join(sorted(unknown))}. Use vertical, square-gif.", file=sys.stderr)
+        print(f"Error: unknown format(s): {', '.join(sorted(unknown))}. Use vertical, square, square-gif.", file=sys.stderr)
         sys.exit(1)
-    res = export_social(master, L, "vertical" in want, "square-gif" in want, args.gif_width, args.gif_fps)
+    res = export_social(master, L, "vertical" in want, "square-gif" in want, args.gif_width, args.gif_fps, "square" in want,
+                        style=args.style or T.get("style", "ambient"), build_dir=base / "build",
+                        backdrop=args.backdrop)
     write_json_output(args.output, {"status": "ok", "video_in": str(master), **res})
 
 
@@ -891,12 +1051,24 @@ def cmd_compose(args):
     ]
     subprocess.run(cmd, check=True)
 
+    social = {}
+    if args.vertical or args.square_gif or args.square:
+        fit_caption_height(T, B)
+        social = export_social(out_mp4, L, args.vertical, args.square_gif, args.square_gif_width, args.gif_fps, args.square,
+                               style=style, build_dir=B, backdrop=args.social_backdrop)
+    if args.intro_clip or args.outro_clip:
+        master = B / "master.mp4"
+        shutil.move(str(out_mp4), str(master))
+        attach_clips(master, out_mp4, args.intro_clip, args.outro_clip, fps)
+
     result_data = {
         "status": "ok",
         "video_out": str(out_mp4),
         "style": style,
         "layout": T.get("layout", "mobile"),
         "duration_seconds": round(final_len, 2),
+        "intro_clip": args.intro_clip,
+        "outro_clip": args.outro_clip,
     }
 
     if args.silent_mp4:
@@ -916,9 +1088,7 @@ def cmd_compose(args):
         )
         result_data["preview_gif_out"] = str(gif_out)
 
-    if args.vertical or args.square_gif:
-        fit_caption_height(T, B)
-    result_data.update(export_social(out_mp4, L, args.vertical, args.square_gif, args.square_gif_width, args.gif_fps))
+    result_data.update(social)
 
     write_json_output(args.output, result_data)
 
@@ -961,10 +1131,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_mus.set_defaults(func=cmd_music)
 
     p_gen = sub.add_parser("generate-asset", help="Generate AI background or illustration via configured API key")
-    p_gen.add_argument("--provider", choices=["gemini", "higgsfield", "firefly", "fal", "openai"], required=True)
+    p_gen.add_argument("--provider", choices=["blender", "gemini", "higgsfield", "firefly", "fal", "openai"], required=True,
+                       help="blender = free local 3D render (no API key); the rest are AI image APIs")
     p_gen.add_argument("--style", choices=["ambient", "minimal", "cartoon", "storybook", "clay3d", "cyberpunk"], default="ambient")
     p_gen.add_argument("--model", default=None, help="Optional specific model ID override")
-    p_gen.add_argument("--prompt", required=True, help="Prompt describing the background or card illustration")
+    p_gen.add_argument("--prompt", default=None, help="Prompt describing the background or card illustration (AI providers)")
+    p_gen.add_argument("--kind", choices=["background", "intro", "outro"], default="background", help="Blender: what to render")
+    p_gen.add_argument("--title", default=None, help="Blender intro/outro: title in 3D text")
+    p_gen.add_argument("--subtitle", default=None, help="Blender intro/outro: smaller line under the title")
+    p_gen.add_argument("--seconds", type=float, default=3.0, help="Blender intro/outro length (default: 3)")
+    p_gen.add_argument("--width", type=int, default=1920, help="Blender render width (default: 1920)")
+    p_gen.add_argument("--height", type=int, default=1080, help="Blender render height (default: 1080)")
+    p_gen.add_argument("--seed", type=int, default=7, help="Blender: layout seed for the props")
     p_gen.add_argument("--asset-out", required=True, help="Path to write the generated image/video asset")
     p_gen.add_argument("--output", required=True, help="Output JSON file path")
     p_gen.set_defaults(func=cmd_generate_asset)
@@ -978,7 +1156,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument("--gif-width", type=int, default=840, help="Width in pixels for preview.gif (default: 840)")
     p_cmp.add_argument("--gif-fps", type=int, default=12, help="Frame rate for preview.gif and the square GIF (default: 12)")
     p_cmp.add_argument("--vertical", action="store_true", help="Also export a 1080x1920 (9:16) narrated MP4 for Reels, Shorts and TikTok")
+    p_cmp.add_argument("--square", action="store_true", help="Also export a 1080x1080 (1:1) narrated MP4 for feeds")
     p_cmp.add_argument("--square-gif", action="store_true", help="Also export a silent square (1:1) GIF for social feeds")
+    p_cmp.add_argument("--social-backdrop", default=None, help="Image behind the pieces in the vertical/square cuts (default: blurred stage background)")
+    p_cmp.add_argument("--intro-clip", default=None, help="MP4 to play before the demo (e.g. a Blender intro)")
+    p_cmp.add_argument("--outro-clip", default=None, help="MP4 to play after the demo (e.g. a Blender outro)")
     p_cmp.add_argument("--square-gif-width", type=int, default=720, help="Side length in pixels for the square GIF (default: 720)")
     p_cmp.add_argument("--output", required=True, help="Output JSON file path")
     p_cmp.set_defaults(func=cmd_compose)
@@ -986,11 +1168,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_rf = sub.add_parser("reframe", help="Re-frame an existing 1080p demo into vertical 9:16 MP4 and/or square GIF")
     p_rf.add_argument("--target", default="demo", help="Target demo directory (needs build/timeline.json)")
     p_rf.add_argument("--video", default=None, help="Landscape master MP4 (default: <target>/demo-video.mp4)")
-    p_rf.add_argument("--formats", default="vertical,square-gif", help="Comma list: vertical, square-gif (default: both)")
+    p_rf.add_argument("--formats", default="vertical,square-gif", help="Comma list: vertical, square, square-gif (default: vertical,square-gif)")
+    p_rf.add_argument("--backdrop", default=None, help="Image behind the re-framed pieces, e.g. a square Blender background (default: blurred stage background)")
+    p_rf.add_argument("--style", choices=["ambient", "minimal", "cartoon", "storybook", "clay3d", "cyberpunk"], default=None,
+                      help="Style of the master (default: from timeline.json); sets the corner radii")
     p_rf.add_argument("--gif-width", type=int, default=720, help="Side length in pixels for the square GIF (default: 720)")
     p_rf.add_argument("--gif-fps", type=int, default=12, help="Frame rate for the square GIF (default: 12)")
     p_rf.add_argument("--output", required=True, help="Output JSON file path")
     p_rf.set_defaults(func=cmd_reframe)
+
+    p_wr = sub.add_parser("wrap", help="Add intro/outro clips (e.g. Blender titles) around any cut, fitted to its size")
+    p_wr.add_argument("--video", required=True, help="The cut to wrap (16:9, 9:16 or 1:1 MP4)")
+    p_wr.add_argument("--intro", default=None, help="Intro MP4")
+    p_wr.add_argument("--outro", default=None, help="Outro MP4")
+    p_wr.add_argument("--video-out", default=None, help="Output MP4 (default: <video>-wrapped.mp4)")
+    p_wr.add_argument("--gif", action="store_true", help="Also write a silent GIF of the wrapped cut")
+    p_wr.add_argument("--gif-width", type=int, default=720, help="GIF width (default: 720)")
+    p_wr.add_argument("--gif-fps", type=int, default=12, help="GIF frame rate (default: 12)")
+    p_wr.add_argument("--output", required=True, help="Output JSON file path")
+    p_wr.set_defaults(func=cmd_wrap)
 
     return parser
 
