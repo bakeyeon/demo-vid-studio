@@ -1,0 +1,27 @@
+{
+  "voice": "en-US-AvaNeural",
+  "style": "ambient",
+  "layout": "mobile",
+  "lines": {
+    "intro1": {
+      "say": "Meet our prototype, recorded and composed automatically with Demo Vid Studio.",
+      "cap": "Meet our prototype — automated 1080p demo walkthrough."
+    },
+    "intro2": {
+      "say": "Every action on screen stays perfectly in sync with this narration.",
+      "cap": "Every screen action stays in step with the narration."
+    },
+    "step1": {
+      "say": "First, we enter an example input and trigger the main workflow.",
+      "cap": "1 · Enter an example input and run the workflow."
+    },
+    "detail": {
+      "say": "Opening the detail view zooms the live interface right into the side card.",
+      "cap": "Live region zoom cropped directly from the 2× capture."
+    },
+    "outro": {
+      "say": "Check out the repository to learn more. Thanks for watching!",
+      "cap": "Check out the repository to learn more. Thanks for watching!"
+    }
+  }
+}

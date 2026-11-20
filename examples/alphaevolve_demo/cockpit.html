@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AlphaEvolve Live Evolution Cockpit</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1280px; height: 800px; overflow: hidden;
+    background: radial-gradient(800px 500px at 85% 15%, rgba(217,70,239,.16), transparent 65%),
+                radial-gradient(800px 500px at 15% 85%, rgba(6,182,212,.16), transparent 65%),
+                #060813;
+    color: #e2e8f0; font-family: 'Rajdhani', system-ui, sans-serif;
+    display: grid; grid-template-rows: 64px 1fr 220px; gap: 14px; padding: 16px 20px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(15,23,42,.85); border: 1.5px solid rgba(6,182,212,.5);
+    border-radius: 12px; padding: 0 20px;
+    box-shadow: 0 0 24px rgba(6,182,212,.18);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand h1 { font: 800 22px 'Orbitron', sans-serif; letter-spacing: .04em; background: linear-gradient(90deg,#22d3ee,#f43f5e,#d946ef); -webkit-background-clip: text; color: transparent; }
+  .controls { display: flex; gap: 10px; }
+  button {
+    font: 700 15px 'Rajdhani', sans-serif; letter-spacing: .03em;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer;
+    background: rgba(6,182,212,.14); color: #67e8f9; border: 1.5px solid #06b6d4;
+    transition: all .2s ease;
+  }
+  button.active, button:hover {
+    background: rgba(217,70,239,.25); color: #f0abfc; border-color: #d946ef;
+    box-shadow: 0 0 16px rgba(217,70,239,.5);
+  }
+  .main-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; min-height: 0; }
+  .panel {
+    background: rgba(10,14,28,.88); border: 1.5px solid rgba(6,182,212,.42);
+    border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column;
+    box-shadow: inset 0 0 18px rgba(6,182,212,.08); position: relative;
+  }
+  .panel.highlight { border-color: #f43f5e; box-shadow: 0 0 28px rgba(244,63,94,.38), inset 0 0 18px rgba(244,63,94,.16); }
+  .panel-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(148,163,184,.2); padding-bottom: 6px; }
+  .panel-title { font: 700 16px 'Orbitron', sans-serif; color: #22d3ee; letter-spacing: .04em; }
+  .badge { font: 700 13px 'JetBrains Mono', monospace; padding: 3px 10px; border-radius: 99px; background: rgba(34,197,94,.18); color: #4ade80; border: 1px solid #22c55e; }
+  .badge.pink { background: rgba(217,70,239,.18); color: #f0abfc; border-color: #d946ef; }
+  pre {
+    font: 500 14px/1.5 'JetBrains Mono', monospace; color: #cbd5e1;
+    overflow: hidden; flex: 1; padding: 8px; border-radius: 8px; background: rgba(2,6,23,.75);
+  }
+  .marker { color: #f43f5e; font-weight: 700; }
+  .mut-line { background: rgba(6,182,212,.18); color: #67e8f9; display: block; padding: 0 6px; border-left: 3px solid #22d3ee; }
+  .chart-box { flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
+  .archive-table { width: 100%; border-collapse: collapse; font: 500 13.5px 'JetBrains Mono', monospace; margin-top: 8px; }
+  .archive-table th { text-align: left; color: #94a3b8; padding: 5px 8px; border-bottom: 1px solid rgba(148,163,184,.25); }
+  .archive-table td { padding: 6px 8px; border-bottom: 1px solid rgba(148,163,184,.12); }
+  .archive-table tr.best-row { background: rgba(34,211,238,.16); color: #22d3ee; font-weight: 700; }
+  .terminal {
+    background: rgba(5,8,18,.95); border: 1.5px solid rgba(217,70,239,.45);
+    border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column;
+  }
+  .term-out { font: 500 13.5px/1.48 'JetBrains Mono', monospace; color: #a5f3fc; flex: 1; overflow: hidden; }
+  .term-cmd { color: #f0abfc; font-weight: 700; }
+  .term-ok { color: #4ade80; font-weight: 700; }
+  .banner {
+    position: fixed; inset: auto 24px 236px 24px; padding: 14px 24px;
+    background: linear-gradient(90deg, rgba(6,182,212,.92), rgba(217,70,239,.92));
+    border: 2px solid #fff; border-radius: 12px; color: #020617;
+    font: 800 20px 'Orbitron', sans-serif; text-align: center; letter-spacing: .05em;
+    box-shadow: 0 0 40px rgba(217,70,239,.7); display: none; z-index: 50;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 128 128" width="38" height="38" fill="none">
+        <path d="M32 36L16 64L32 92" stroke="#22d3ee" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M96 36L112 64L96 92" stroke="#d946ef" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M44 26C44 50 84 50 84 64C84 78 44 78 44 102" stroke="#22d3ee" stroke-width="7" stroke-linecap="round"/>
+        <path d="M84 26C84 50 44 50 44 64C44 78 84 78 84 102" stroke="#f43f5e" stroke-width="7" stroke-linecap="round"/>
+      </svg>
+      <h1>ALPHAEVOLVE // EVOLUTION COCKPIT</h1>
+    </div>
+    <div class="controls">
+      <button id="btn-baseline">1 · Verify Baseline</button>
+      <button id="btn-gen1">2 · Mutate Gen 1</button>
+      <button id="btn-gen2">3 · Mutate Gen 2</button>
+      <button id="btn-gen3">4 · Evolve Gen 3 (DP)</button>
+      <button id="btn-archive">5 · Inspect MAP-Elites</button>
+      <button id="btn-guard">6 · Held-Out & Blind Mode</button>
+    </div>
+  </header>
+
+  <div class="main-grid">
+    <!-- Left: EVOLVE-BLOCK Editor -->
+    <div class="panel" id="code-panel">
+      <div class="panel-hdr">
+        <span class="panel-title">TARGET: best_program.py (0/1 Knapsack)</span>
+        <span class="badge" id="gen-badge">CANDIDATE: gen_000 (L1 Baseline)</span>
+      </div>
+      <pre id="code-view"><span class="marker"># EVOLVE-BLOCK-START</span>
+def solve_knapsack(capacity: int, weights: list[int], values: list[int]) -> list[int]:
+    """gen_000: Simple greedy selection by raw item value."""
+    n = len(weights)
+    order = sorted(range(n), key=lambda i: values[i], reverse=True)
+    picked, rem = [], capacity
+<span class="mut-line">    for i in order:
+        if weights[i] &lt;= rem:
+            picked.append(i); rem -= weights[i]</span>
+    return picked
+<span class="marker"># EVOLVE-BLOCK-END</span></pre>
+    </div>
+
+    <!-- Right: MAP-Elites Archive & Fitness Chart -->
+    <div class="panel" id="map-panel">
+      <div class="panel-hdr">
+        <span class="panel-title">MAP-ELITES ARCHIVE &amp; FITNESS</span>
+        <span class="badge pink" id="score-badge">SCORE: 0.724</span>
+      </div>
+      <div class="chart-box">
+        <svg id="fitness-svg" viewBox="0 0 460 175" width="100%" height="175" style="background:rgba(2,6,23,.7);border-radius:8px;padding:6px">
+          <line x1="45" y1="20" x2="430" y2="20" stroke="rgba(148,163,184,.2)" stroke-dasharray="4 4"/>
+          <line x1="45" y1="80" x2="430" y2="80" stroke="rgba(148,163,184,.2)" stroke-dasharray="4 4"/>
+          <line x1="45" y1="140" x2="430" y2="140" stroke="rgba(148,163,184,.35)"/>
+          <text x="8" y="24" fill="#4ade80" font-size="11" font-family="JetBrains Mono">1.00</text>
+          <text x="8" y="84" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">0.85</text>
+          <text x="8" y="144" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">0.70</text>
+          <polyline id="chart-line" fill="none" stroke="#22d3ee" stroke-width="3.5" points="70,130"/>
+          <g id="chart-nodes">
+            <circle cx="70" cy="130" r="6" fill="#22d3ee"/>
+            <text x="55" y="158" fill="#cbd5e1" font-size="11" font-family="JetBrains Mono">gen_0</text>
+          </g>
+        </svg>
+
+        <table class="archive-table">
+          <thead><tr><th>ID</th><th>Parent</th><th>Strategy Rationale</th><th>Score</th><th>Time</th></tr></thead>
+          <tbody id="archive-body">
+            <tr class="best-row"><td>gen_000</td><td>—</td><td>L1 Greedy by raw value</td><td>0.724</td><td>0.4ms</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="banner" id="complete-banner">★ EVOLUTION COMPLETE // HELD-OUT SCORE: 1.000 // best_program.py SAVED ★</div>
+
+  <!-- Bottom: Agent CLI Terminal -->
+  <div class="terminal" id="term-panel">
+    <div class="panel-hdr">
+      <span class="panel-title" style="color:#f0abfc">AGENT EVOLUTION LOOP // evolve_local.py &amp; evaluator.py</span>
+      <span class="badge" id="guard-badge">BLIND_MODE = True | MAX_CODE_CHARS = 2400</span>
+    </div>
+    <div class="term-out" id="term-log">
+      <div><span class="term-cmd">$ python scaffold_evolve.py --target-dir ./evolve_workspace --task-name knapsack_01</span></div>
+      <div>[alphaevolve] Workspace ready: initial_program.py, evaluator.py, evolve_local.py</div>
+    </div>
+  </div>
+
+<script>
+const STATES = {
+  baseline: {
+    gen: 'CANDIDATE: gen_000 (Verified Baseline)',
+    score: 'SCORE: 0.724',
+    pts: '70,130',
+    nodes: `<circle cx="70" cy="130" r="6" fill="#22d3ee"/><text x="55" y="158" fill="#cbd5e1" font-size="11" font-family="JetBrains Mono">gen_0</text>`,
+    code: `<span class="marker"># EVOLVE-BLOCK-START</span>
+def solve_knapsack(capacity: int, weights: list[int], values: list[int]) -> list[int]:
+    """gen_000: Verified deterministic baseline against L1 reference oracle."""
+    n = len(weights)
+    order = sorted(range(n), key=lambda i: values[i], reverse=True)
+    picked, rem = [], capacity
+<span class="mut-line">    for i in order:
+        if weights[i] &lt;= rem:
+            picked.append(i); rem -= weights[i]</span>
+    return picked
+<span class="marker"># EVOLVE-BLOCK-END</span>`,
+    rows: `<tr class="best-row"><td>gen_000</td><td>—</td><td>L1 Greedy by raw value</td><td>0.724</td><td>0.4ms</td></tr>`,
+    log: `<div><span class="term-cmd">$ python evolve_local.py init --workspace ./evolve_workspace</span></div>
+          <div>[evaluator] 40 seeded random instances + 5 edge cases | timeout=2.0s</div>
+          <div class="term-ok">[OK] gen_000 valid=True | combined_score=0.7240 | deterministic check PASSED</div>`
+  },
+  gen1: {
+    gen: 'CANDIDATE: gen_001 (+0.141 vs gen_000)',
+    score: 'SCORE: 0.865',
+    pts: '70,130 185,74',
+    nodes: `<circle cx="70" cy="130" r="5" fill="#64748b"/><text x="55" y="158" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">gen_0</text>
+            <circle cx="185" cy="74" r="6.5" fill="#22d3ee"/><text x="170" y="158" fill="#22d3ee" font-size="11" font-family="JetBrains Mono">gen_1</text>`,
+    code: `<span class="marker"># EVOLVE-BLOCK-START</span>
+def solve_knapsack(capacity: int, weights: list[int], values: list[int]) -> list[int]:
+    """gen_001: Sort by value-to-weight density ratio + best single item fallback."""
+    n = len(weights)
+<span class="mut-line">    order = sorted(range(n), key=lambda i: values[i] / max(1, weights[i]), reverse=True)
+    picked, rem, total_v = [], capacity, 0</span>
+    for i in order:
+        if weights[i] &lt;= rem:
+            picked.append(i); rem -= weights[i]; total_v += values[i]
+    return picked
+<span class="marker"># EVOLVE-BLOCK-END</span>`,
+    rows: `<tr><td>gen_000</td><td>—</td><td>L1 Greedy by raw value</td><td>0.724</td><td>0.4ms</td></tr>
+           <tr class="best-row"><td>gen_001</td><td>gen_000</td><td>Value/weight density ratio</td><td>0.865</td><td>0.5ms</td></tr>`,
+    log: `<div><span class="term-cmd">$ python evolve_local.py evaluate --candidate candidates/gen_001.py --parent-id gen_000</span></div>
+          <div>[rationale] "Rank items by value/weight density ratio instead of raw value"</div>
+          <div class="term-ok">[NEW BEST] gen_001 | combined_score=0.8650 (delta_vs_parent = +0.1410)</div>`
+  },
+  gen2: {
+    gen: 'CANDIDATE: gen_002 (+0.077 vs gen_001)',
+    score: 'SCORE: 0.942',
+    pts: '70,130 185,74 300,43',
+    nodes: `<circle cx="70" cy="130" r="5" fill="#64748b"/><text x="55" y="158" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">gen_0</text>
+            <circle cx="185" cy="74" r="5" fill="#64748b"/><text x="170" y="158" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">gen_1</text>
+            <circle cx="300" cy="43" r="6.5" fill="#f43f5e"/><text x="285" y="158" fill="#f43f5e" font-size="11" font-family="JetBrains Mono">gen_2</text>`,
+    code: `<span class="marker"># EVOLVE-BLOCK-START</span>
+def solve_knapsack(capacity: int, weights: list[int], values: list[int]) -> list[int]:
+    """gen_002: Density greedy + 2-opt local swap refinement pass."""
+    order = sorted(range(len(weights)), key=lambda i: values[i] / max(1, weights[i]), reverse=True)
+<span class="mut-line">    picked = greedy_fill(order, capacity, weights)
+    picked = local_2opt_swap(picked, order, capacity, weights, values)</span>
+    return picked
+<span class="marker"># EVOLVE-BLOCK-END</span>`,
+    rows: `<tr><td>gen_000</td><td>—</td><td>L1 Greedy by raw value</td><td>0.724</td><td>0.4ms</td></tr>
+           <tr><td>gen_001</td><td>gen_000</td><td>Value/weight density ratio</td><td>0.865</td><td>0.5ms</td></tr>
+           <tr class="best-row"><td>gen_002</td><td>gen_001</td><td>2-opt local swap refinement</td><td>0.942</td><td>1.1ms</td></tr>`,
+    log: `<div><span class="term-cmd">$ python evolve_local.py sample -k 2 &amp;&amp; python evolve_local.py evaluate --candidate candidates/gen_002.py</span></div>
+          <div>[rationale] "Add 2-opt swap pass to replace residual slack with higher-value pairs"</div>
+          <div class="term-ok">[NEW BEST] gen_002 | combined_score=0.9420 (delta_vs_parent = +0.0770)</div>`
+  },
+  gen3: {
+    gen: 'CANDIDATE: gen_003 (OPTIMAL DP // 1.000)',
+    score: 'SCORE: 1.000 ★',
+    pts: '70,130 185,74 300,43 410,20',
+    nodes: `<circle cx="70" cy="130" r="5" fill="#64748b"/><text x="55" y="158" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">gen_0</text>
+            <circle cx="185" cy="74" r="5" fill="#64748b"/><text x="170" y="158" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">gen_1</text>
+            <circle cx="300" cy="43" r="5" fill="#64748b"/><text x="285" y="158" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">gen_2</text>
+            <circle cx="410" cy="20" r="7.5" fill="#4ade80"/><text x="390" y="158" fill="#4ade80" font-size="11" font-family="JetBrains Mono">gen_3★</text>`,
+    code: `<span class="marker"># EVOLVE-BLOCK-START</span>
+def solve_knapsack(capacity: int, weights: list[int], values: list[int]) -> list[int]:
+    """gen_003: Exact 1D dynamic programming with bitmask backtracking."""
+    dp = [0] * (capacity + 1)
+    keep = [[False] * (capacity + 1) for _ in range(len(weights))]
+<span class="mut-line">    for i, (w, v) in enumerate(zip(weights, values)):
+        for c in range(capacity, w - 1, -1):
+            if dp[c - w] + v &gt; dp[c]:
+                dp[c] = dp[c - w] + v; keep[i][c] = True</span>
+    return backtrack(keep, weights, capacity)
+<span class="marker"># EVOLVE-BLOCK-END</span>`,
+    rows: `<tr><td>gen_000</td><td>—</td><td>L1 Greedy by raw value</td><td>0.724</td><td>0.4ms</td></tr>
+           <tr><td>gen_001</td><td>gen_000</td><td>Value/weight density ratio</td><td>0.865</td><td>0.5ms</td></tr>
+           <tr><td>gen_002</td><td>gen_001</td><td>2-opt local swap refinement</td><td>0.942</td><td>1.1ms</td></tr>
+           <tr class="best-row"><td>gen_003</td><td>gen_002</td><td>1D DP + bitmask backtrack</td><td>1.000</td><td>2.3ms</td></tr>`,
+    log: `<div><span class="term-cmd">$ python evolve_local.py evaluate --candidate candidates/gen_003.py --parent-id gen_002</span></div>
+          <div>[rationale] "Replace heuristic search with exact 1D dynamic programming over capacity"</div>
+          <div class="term-ok">[OPTIMUM REACHED] gen_003 | combined_score=1.0000 (+0.2760 vs baseline) -> best_program.py updated!</div>`
+  }
+};
+
+function applyState(key, btnId) {
+  document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  if (btnId) document.getElementById(btnId).classList.add('active');
+  const s = STATES[key];
+  if (!s) return;
+  document.getElementById('gen-badge').textContent = s.gen;
+  document.getElementById('score-badge').textContent = s.score;
+  document.getElementById('chart-line').setAttribute('points', s.pts);
+  document.getElementById('chart-nodes').innerHTML = s.nodes;
+  document.getElementById('code-view').innerHTML = s.code;
+  document.getElementById('archive-body').innerHTML = s.rows;
+  document.getElementById('term-log').innerHTML = s.log;
+}
+
+document.getElementById('btn-baseline').onclick = () => applyState('baseline', 'btn-baseline');
+document.getElementById('btn-gen1').onclick = () => applyState('gen1', 'btn-gen1');
+document.getElementById('btn-gen2').onclick = () => applyState('gen2', 'btn-gen2');
+document.getElementById('btn-gen3').onclick = () => applyState('gen3', 'btn-gen3');
+document.getElementById('btn-archive').onclick = () => {
+  document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-archive').classList.add('active');
+  document.getElementById('map-panel').classList.add('highlight');
+};
+document.getElementById('btn-guard').onclick = () => {
+  document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-guard').classList.add('active');
+  document.getElementById('map-panel').classList.remove('highlight');
+  document.getElementById('term-log').innerHTML = `
+    <div><span class="term-cmd">$ python evolve_local.py status --workspace ./evolve_workspace --held-out</span></div>
+    <div>[guardrails] MAX_CODE_CHARS=2400 (passed: 612 chars) | BLIND_MODE=True (zero raw data leak)</div>
+    <div class="term-ok">[HELD-OUT VERIFIED] train_score=1.0000 | held_out_score=1.0000 | Generalization CONFIRMED!</div>`;
+  document.getElementById('complete-banner').style.display = 'block';
+};
+</script>
+</body>
+</html>

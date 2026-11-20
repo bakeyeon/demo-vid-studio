@@ -1,0 +1,9 @@
+node_modules/
+package-lock.json
+examples/*/raw/
+examples/*/build/
+examples/*/voice/*.mp3
+examples/*/voice/*.wav
+examples/*/*_result.json
+examples/*/init.json
+.DS_Store

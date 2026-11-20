@@ -1,0 +1,39 @@
+{
+  "voice": "en-US-AvaNeural",
+  "style": "cyberpunk",
+  "layout": "desktop",
+  "lines": {
+    "intro1": {
+      "say": "Meet AlphaEvolve, an evolutionary coding plugin for Claude Code and Antigravity.",
+      "cap": "Meet AlphaEvolve — evolutionary algorithm discovery for coding agents."
+    },
+    "intro2": {
+      "say": "Instead of stopping at a first draft, it evolves algorithms against an automated evaluator.",
+      "cap": "Iteratively mutates and benchmarks code inside # EVOLVE-BLOCK."
+    },
+    "scaffold": {
+      "say": "First, it scaffolds an initial baseline and verifies correctness against a reference oracle.",
+      "cap": "1 · Verify deterministic baseline (gen_000 · score 0.724)."
+    },
+    "mutate1": {
+      "say": "In Mode A, the agent samples top parents, writes a hypothesis, and mutates the evolve block.",
+      "cap": "2 · Agent-driven loop: sample → hypothesis rationale → evaluate."
+    },
+    "mutate2": {
+      "say": "Across three generations, the knapsack solver climbs from greedy to optimal dynamic programming.",
+      "cap": "Score climbs 0.724 → 0.865 → 0.942 → 1.000 (gen_003)."
+    },
+    "zoom_map": {
+      "say": "Every candidate, parent lineage, and runtime metric is tracked live in the MAP-Elites archive.",
+      "cap": "Live 2× zoom: MAP-Elites fitness progression & parent lineage."
+    },
+    "guardrails": {
+      "say": "Held-out verification prevents overfitting, while Blind Mode protects private datasets from leaking into agent context.",
+      "cap": "3 · Guardrails: --held-out split, MAX_CODE_CHARS, and BLIND_MODE = True."
+    },
+    "outro": {
+      "say": "Available now for Claude Code and Antigravity. Thanks for watching!",
+      "cap": "Explore github.com/bakeyeon/alphaevolve-plugin — Thanks for watching!"
+    }
+  }
+}
