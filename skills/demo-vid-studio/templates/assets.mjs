@@ -133,7 +133,7 @@ const STYLE_THEMES = {
     chipCss: `border-radius: 999px; color: #4338ca; background: #e0e7ff;
               box-shadow: 4px 6px 12px rgba(99,102,241,.16), inset -2px -3px 6px rgba(99,102,241,.15), inset 2px 3px 6px rgba(255,255,255,.9);`,
     capCss:  `border-radius: 32px; background: #312e81; color: #f8fafc;
-              box-shadow: 12px 16px 32px rgba(49,46,129,.28), inset -4px -5px 10px rgba(0,0,0,.3), inset 4px 5px 10px rgba(255,255,255,.22);`,
+              box-shadow: inset -4px -5px 10px rgba(0,0,0,.35), inset 4px 5px 10px rgba(255,255,255,.25);`,
     frameFill: '#4f46e5',
     frameStroke: '#818cf8',
   },
@@ -235,7 +235,8 @@ const launchBrowser = async () => {
 const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: L.W, height: L.H }, deviceScaleFactor: 1 });
 const render = async (html, file, sel, transparent = true) => {
-  await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>${html}</body></html>`);
+  const bgStyle = transparent ? 'html, body { background: transparent !important; }' : '';
+  await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${CSS}\n${bgStyle}</style></head><body>${html}</body></html>`);
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(150);
   await page.locator(sel).first().screenshot({ path: path.join(OUT, file), omitBackground: transparent });

@@ -741,37 +741,81 @@ def _round_mask(w: int, h: int, r: int) -> str:
 
 
 def render_reframe(master: pathlib.Path, L: dict, W: int, H: int, out: pathlib.Path, audio: bool = True,
-                   style: str = "ambient", backdrop=None, blur: int = 10):
+                   style: str = "ambient", backdrop=None, blur: int = 10, build_dir=None):
     """Lays the device, card and caption of the 16:9 master onto a W x H canvas.
-    Each piece is cut to its exact outline with rounded corners; the backdrop is the stage
-    background (blurred), or a blurred copy of the video when no background image is given."""
+    Device and card are cropped with rounded-corner masks; captions are overlaid directly from
+    their transparent PNGs (cap_*.png) in build/timeline.json so the 16:9 background never bleeds
+    through when a caption fades in/out or between lines."""
     place = plan_reframe(stage_boxes(L, style), W, H)
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(master)],
                                capture_output=True, text=True, check=True).stdout.strip())
     inputs = ["-i", str(master)]
-    n = len(place)
+
+    # Check if we can overlay transparent caption PNGs directly from build_dir/timeline.json
+    bdir = pathlib.Path(build_dir) if build_dir else None
+    t_data = None
+    if bdir and (bdir / "timeline.json").exists():
+        try:
+            t_data = json.loads((bdir / "timeline.json").read_text(encoding="utf-8"))
+        except Exception:
+            t_data = None
+
+    cap_place = place[-1]
+    crop_places = place[:-1] if t_data else place
+    n = len(crop_places)
+
     if backdrop and pathlib.Path(backdrop).exists():
         inputs += ["-loop", "1", "-framerate", "30", "-t", f"{dur:.3f}", "-i", str(backdrop)]
         f = [f"[0:v]split={n}" + "".join(f"[r{k}]" for k in range(n)),
-             f"[1:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}" + (f",gblur=sigma={blur}" if blur else "") + ",format=rgba[l0]"]
+             f"[1:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}" + (f",gblur=sigma={blur}" if blur else "") + ",format=yuv420p[l0]"]
+        next_idx = 2
     else:
         f = [f"[0:v]split={1 + n}[bgsrc]" + "".join(f"[r{k}]" for k in range(n)),
-             f"[bgsrc]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=36,eq=brightness=-0.06,format=rgba[l0]"]
+             f"[bgsrc]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=36,eq=brightness=-0.06,format=yuv420p[l0]"]
+        next_idx = 1
+
     cur = "l0"
-    for k, (b, w, h, x, y, s) in enumerate(place):
+    for k, (b, w, h, x, y, s) in enumerate(crop_places):
         f.append(f"{_round_mask(w, h, int(b['r'] * s))}[mk{k}]")
         f.append(f"[r{k}]crop={b['w']}:{b['h']}:{b['x']}:{b['y']},scale={w}:{h}:flags=lanczos,format=rgba[c{k}]")
         f.append(f"[c{k}][mk{k}]alphamerge[p{k}]")
         f.append(f"[{cur}][p{k}]overlay={x}:{y}:shortest=1[l{k + 1}]")
         cur = f"l{k + 1}"
+
+    if t_data and bdir:
+        _, cw, _, cx, cy, _ = cap_place
+        start_offset = t_data.get("start", 0.0)
+        cap_items = [it for it in t_data.get("items", []) if it.get("kind") == "caption"]
+        for it in cap_items:
+            st_t = max(0.0, it["start"] - start_offset)
+            en_t = it["end"] - start_offset
+            d = en_t - st_t
+            if d <= 0.2 or not (bdir / it["file"]).exists():
+                continue
+            inputs += ["-loop", "1", "-framerate", "30", "-t", f"{d:.3f}", "-i", str(bdir / it["file"])]
+            fo = max(0.0, d - 0.3)
+            f.append(
+                f"[{next_idx}:v]scale={cw}:-1:flags=lanczos,format=rgba,"
+                f"fade=in:st=0:d=0.35:alpha=1,fade=out:st={fo:.3f}:d=0.3:alpha=1,"
+                f"setpts=PTS+{st_t:.3f}/TB[cp{next_idx}]"
+            )
+            f.append(f"[{cur}][cp{next_idx}]overlay={cx}:{cy}:eof_action=pass[cl{next_idx}]")
+            cur = f"cl{next_idx}"
+            next_idx += 1
+
     f.append(f"[{cur}]format=yuv420p[vout]")
-    cmd = ["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(f), "-map", "[vout]"]
+    filter_file = (bdir / "reframe_filter.txt") if bdir else out.with_suffix(".filter.txt")
+    filter_file.write_text(";\n".join(f), encoding="utf-8")
+    filter_flag = get_ffmpeg_filter_flag()
+    cmd = ["ffmpeg", "-y", "-v", "error", *inputs, filter_flag, str(filter_file), "-map", "[vout]"]
     if audio:
         cmd += ["-map", "0:a?", "-c:a", "aac", "-b:a", "192k"]
     else:
         cmd += ["-an"]
     cmd += ["-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-movflags", "+faststart", str(out)]
     subprocess.run(cmd, check=True)
+    if not bdir:
+        filter_file.unlink(missing_ok=True)
 
 
 def make_gif(src: pathlib.Path, out: pathlib.Path, width: int, fps: int):
@@ -802,15 +846,16 @@ def fit_caption_height(T: dict, build_dir: pathlib.Path) -> dict:
 
 
 def export_social(master: pathlib.Path, L: dict, vertical: bool, square_gif: bool, gif_width: int, gif_fps: int,
-                  square: bool = False, style: str = "ambient", build_dir=None, backdrop=None) -> dict:
+                  square: bool = False, style: str = "ambient", build_dir=None, backdrop=None, blur: int = None) -> dict:
     res = {}
-    blur = 0 if backdrop else 10
+    if blur is None:
+        blur = 0 if backdrop else 10
     if not backdrop and build_dir:
         for name in ("bg_ai.png", "bg.png"):
             if (pathlib.Path(build_dir) / name).exists():
                 backdrop = pathlib.Path(build_dir) / name
                 break
-    kw = {"style": style, "backdrop": backdrop, "blur": blur}
+    kw = {"style": style, "backdrop": backdrop, "blur": blur, "build_dir": build_dir}
     if square:
         s_out = master.with_name(f"{master.stem}-square.mp4")
         render_reframe(master, L, 1080, 1080, s_out, audio=True, **kw)
@@ -867,7 +912,7 @@ def cmd_reframe(args):
         sys.exit(1)
     res = export_social(master, L, "vertical" in want, "square-gif" in want, args.gif_width, args.gif_fps, "square" in want,
                         style=args.style or T.get("style", "ambient"), build_dir=base / "build",
-                        backdrop=args.backdrop)
+                        backdrop=args.backdrop, blur=args.blur)
     write_json_output(args.output, {"status": "ok", "video_in": str(master), **res})
 
 
@@ -1170,6 +1215,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_rf.add_argument("--video", default=None, help="Landscape master MP4 (default: <target>/demo-video.mp4)")
     p_rf.add_argument("--formats", default="vertical,square-gif", help="Comma list: vertical, square, square-gif (default: vertical,square-gif)")
     p_rf.add_argument("--backdrop", default=None, help="Image behind the re-framed pieces, e.g. a square Blender background (default: blurred stage background)")
+    p_rf.add_argument("--blur", type=int, default=None, help="Gaussian blur sigma for the backdrop (default: 0 with --backdrop, 10 without)")
     p_rf.add_argument("--style", choices=["ambient", "minimal", "cartoon", "storybook", "clay3d", "cyberpunk"], default=None,
                       help="Style of the master (default: from timeline.json); sets the corner radii")
     p_rf.add_argument("--gif-width", type=int, default=720, help="Side length in pixels for the square GIF (default: 720)")
