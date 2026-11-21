@@ -128,8 +128,7 @@ const STYLE_THEMES = {
     bodyFont: 'Nunito, sans-serif',
     gradText: 'linear-gradient(90deg, #6366f1, #ec4899, #10b981)',
     cardCss: `border-radius: 42px; background: #f8fafc; border: none;
-              box-shadow: 20px 25px 50px rgba(99,102,241,.18), -10px -10px 30px rgba(255,255,255,.9),
-              inset -6px -8px 16px rgba(148,163,184,.25), inset 6px 8px 16px rgba(255,255,255,1);`,
+              box-shadow: inset -6px -8px 16px rgba(148,163,184,.28), inset 6px 8px 16px rgba(255,255,255,1);`,
     chipCss: `border-radius: 999px; color: #4338ca; background: #e0e7ff;
               box-shadow: 4px 6px 12px rgba(99,102,241,.16), inset -2px -3px 6px rgba(99,102,241,.15), inset 2px 3px 6px rgba(255,255,255,.9);`,
     capCss:  `border-radius: 32px; background: #312e81; color: #f8fafc;

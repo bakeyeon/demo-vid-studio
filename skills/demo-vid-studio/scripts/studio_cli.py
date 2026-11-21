@@ -742,16 +742,15 @@ def _round_mask(w: int, h: int, r: int) -> str:
 
 def render_reframe(master: pathlib.Path, L: dict, W: int, H: int, out: pathlib.Path, audio: bool = True,
                    style: str = "ambient", backdrop=None, blur: int = 10, build_dir=None):
-    """Lays the device, card and caption of the 16:9 master onto a W x H canvas.
-    Device and card are cropped with rounded-corner masks; captions are overlaid directly from
-    their transparent PNGs (cap_*.png) in build/timeline.json so the 16:9 background never bleeds
-    through when a caption fades in/out or between lines."""
+    """Lays the device, card and caption onto a W x H canvas.
+    When build_dir contains timeline.json and the raw transparent card_*.png / cap_*.png assets,
+    composes the cards, live zooms, and captions directly from their transparent sources so the
+    16:9 background NEVER bleeds through during card or caption fades!"""
     place = plan_reframe(stage_boxes(L, style), W, H)
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(master)],
                                capture_output=True, text=True, check=True).stdout.strip())
     inputs = ["-i", str(master)]
 
-    # Check if we can overlay transparent caption PNGs directly from build_dir/timeline.json
     bdir = pathlib.Path(build_dir) if build_dir else None
     t_data = None
     if bdir and (bdir / "timeline.json").exists():
@@ -760,10 +759,26 @@ def render_reframe(master: pathlib.Path, L: dict, W: int, H: int, out: pathlib.P
         except Exception:
             t_data = None
 
-    cap_place = place[-1]
-    crop_places = place[:-1] if t_data else place
-    n = len(crop_places)
+    screen_mp4 = (bdir / "screen.mp4") if bdir else None
+    if screen_mp4 and not screen_mp4.exists() and (bdir / "phone.mp4").exists():
+        screen_mp4 = bdir / "phone.mp4"
+    can_native_cards = bool(t_data and bdir and len(place) == 3 and screen_mp4 and screen_mp4.exists())
 
+    # If we can render cards & captions natively from transparent PNGs, only crop the device from master!
+    if can_native_cards:
+        crop_places = [place[0]]
+        card_place = place[1]
+        cap_place = place[2]
+    elif t_data:
+        crop_places = place[:-1]
+        card_place = None
+        cap_place = place[-1]
+    else:
+        crop_places = place
+        card_place = None
+        cap_place = None
+
+    n = len(crop_places)
     if backdrop and pathlib.Path(backdrop).exists():
         inputs += ["-loop", "1", "-framerate", "30", "-t", f"{dur:.3f}", "-i", str(backdrop)]
         f = [f"[0:v]split={n}" + "".join(f"[r{k}]" for k in range(n)),
@@ -782,9 +797,62 @@ def render_reframe(master: pathlib.Path, L: dict, W: int, H: int, out: pathlib.P
         f.append(f"[{cur}][p{k}]overlay={x}:{y}:shortest=1[l{k + 1}]")
         cur = f"l{k + 1}"
 
-    if t_data and bdir:
+    start_offset = t_data.get("start", 0.0) if t_data else 0.0
+
+    # Native transparent cards + live 2x region zooms (zero 16:9 background ghosting!)
+    if can_native_cards and card_place:
+        _, cw, ch, cx, cy, cs = card_place
+        Z = L["zoom"]
+        card_items = [it for it in t_data.get("items", []) if it.get("kind") == "card"]
+        zoom_cards = [it for it in card_items if it.get("rect")]
+
+        for it in card_items:
+            st_t = max(0.0, it["start"] - start_offset)
+            en_t = it["end"] - start_offset
+            d = en_t - st_t
+            if d <= 0.2 or not (bdir / it["file"]).exists():
+                continue
+            inputs += ["-loop", "1", "-framerate", "30", "-t", f"{d:.3f}", "-i", str(bdir / it["file"])]
+            fo = max(0.0, d - 0.3)
+            f.append(
+                f"[{next_idx}:v]scale={cw}:{ch}:flags=lanczos,format=rgba,"
+                f"fade=in:st=0:d=0.35:alpha=1,fade=out:st={fo:.3f}:d=0.3:alpha=1,"
+                f"setpts=PTS+{st_t:.3f}/TB[cd{next_idx}]"
+            )
+            rise_px = max(8, round(28 * cs))
+            rise = f"{cy}+{rise_px}*max(0\\,1-(t-{st_t:.3f})/0.35)"
+            f.append(f"[{cur}][cd{next_idx}]overlay=x={cx}:y='{rise}':eval=frame:eof_action=pass[cdl{next_idx}]")
+            cur = f"cdl{next_idx}"
+            next_idx += 1
+
+        if zoom_cards:
+            inputs += ["-ss", f"{start_offset:.3f}", "-t", f"{dur:.3f}", "-i", str(screen_mp4)]
+            scr_idx = next_idx
+            next_idx += 1
+            if len(zoom_cards) > 1:
+                f.append(f"[{scr_idx}:v]split={len(zoom_cards)}" + "".join(f"[rz{k}]" for k in range(len(zoom_cards))))
+            else:
+                f.append(f"[{scr_idx}:v]null[rz0]")
+            for k, it in enumerate(zoom_cards):
+                r = it["rect"]
+                rcx, rcy = max(0, round(r["x"] * 2)), max(0, round(r["y"] * 2))
+                rcw, rch = max(4, round(r["w"] * 2)), max(4, round(r["h"] * 2))
+                zw, zh = Z["w"] * cs, Z["h"] * cs
+                sc = min(zw / rcw, zh / rch)
+                ow, oh = _even(rcw * sc), _even(rch * sc)
+                ox = round(cx + Z["x"] * cs + (zw - ow) / 2)
+                oy = round(cy + Z["y"] * cs + (zh - oh) / 2)
+                a = max(0.0, it.get("zoomStart", it["start"]) - start_offset + 0.35)
+                b = max(a + 0.1, it["end"] - start_offset)
+                f.append(
+                    f"[rz{k}]crop={rcw}:{rch}:{rcx}:{rcy},scale={ow}:{oh}:flags=lanczos,format=rgba,"
+                    f"fade=in:st={a:.3f}:d=0.3:alpha=1,fade=out:st={max(a, b - 0.3):.3f}:d=0.3:alpha=1[rzz{k}]"
+                )
+                f.append(f"[{cur}][rzz{k}]overlay={ox}:{oy}:enable='between(t,{a:.3f},{b:.3f})'[rzm{k}]")
+                cur = f"rzm{k}"
+
+    if t_data and bdir and cap_place:
         _, cw, _, cx, cy, _ = cap_place
-        start_offset = t_data.get("start", 0.0)
         cap_items = [it for it in t_data.get("items", []) if it.get("kind") == "caption"]
         for it in cap_items:
             st_t = max(0.0, it["start"] - start_offset)
